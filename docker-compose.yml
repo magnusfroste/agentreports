@@ -1,0 +1,27 @@
+# AgentReports on its own. Put the values in a .env file next to this one (see .env.example).
+services:
+  reports:
+    build: .
+    restart: unless-stopped
+    environment:
+      REPORTS_PASSWORD: ${REPORTS_PASSWORD:?set a password of 20+ characters}
+      MCP_KEYS: ${MCP_KEYS:?name:key pairs, one per agent}
+      SITE_TITLE: ${SITE_TITLE:-Reports}
+      SITE_SUBTITLE: ${SITE_SUBTITLE:-}
+      REPORTS_LANG: ${REPORTS_LANG:-en}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      TRUSTED_PROXY_HEADER: ${TRUSTED_PROXY_HEADER:-}
+      AGENT_NAMES: ${AGENT_NAMES:-}
+      REPORT_STYLE: ${REPORT_STYLE:-on}
+      # FILES_DIR: /files        # serve a read-only folder to signed-in readers
+      # FILES_ROUTE: /files
+      # BRAND_DIR: /brand        # your logo, icon and colour (see README)
+    volumes:
+      - reports-data:/data
+      # - ./files:/files:ro
+      # - ./brand:/brand:ro
+    ports:
+      - "8000:8000"
+
+volumes:
+  reports-data:

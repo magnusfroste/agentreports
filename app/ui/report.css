@@ -1,0 +1,113 @@
+/* AgentReports report kit: link it from a report with
+     <link rel="stylesheet" href="/static/report.css">
+   and use the r-* classes. The site's brand (BRAND_DIR) is appended after this file, so the
+   variables below are only the defaults. Light and dark follow the reader's system. */
+:root {
+  --bg: #f6f4ef; --surface: #ffffff; --surface-2: #f1eee7; --line: #e4dfd4; --line-strong: #d3cbbb;
+  --text: #15201f; --muted: #5d6865; --faint: #8a938f;
+  --accent: #0f3d3e; --accent-ink: #ffffff; --accent-soft: #dcebe7; --accent-text: var(--accent);
+  --good: #2f7d4f; --warn: #b7791f; --bad: #b4432f;
+  --c1: #0f6e6a; --c2: #d08a2e; --c3: #4d6fb3; --c4: #b2456e; --c5: #6f5bb5; --c6: #5a8a3a;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: var(--font-body); --heading-weight: 680; --heading-tracking: -.02em; --heading-scale: 1;
+  --radius: 14px; --radius-control: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1314; --surface: #131c1e; --surface-2: #192426; --line: #223033; --line-strong: #2f4144;
+    --text: #e7eeec; --muted: #9fb0ac; --faint: #6f817d;
+    --accent: #6cc3b5; --accent-ink: #08201d; --accent-soft: #173431;
+    --good: #6fcf97; --warn: #e8b04a; --bad: #f08a73;
+    --c1: #5fc2b9; --c2: #e9a85a; --c3: #8aa7e6; --c4: #e58aae; --c5: #a99cf0; --c6: #9ccc6f;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-text); }
+.r-page { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+@media (max-width: 600px) { .r-page { padding: 20px 16px 48px; } }
+
+/* header */
+.r-back { display: inline-block; margin-bottom: 18px; color: var(--muted); text-decoration: none; font-size: 14px; }
+.r-back:hover { color: var(--text); }
+.r-eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-text); margin: 0 0 8px; }
+h1, h2, h3 { font-family: var(--font-heading); font-weight: var(--heading-weight); letter-spacing: var(--heading-tracking); line-height: 1.15; }
+h1 { font-size: calc(clamp(28px, 4vw, 40px) * var(--heading-scale)); margin: 0; }
+h2 { font-size: calc(22px * var(--heading-scale)); margin: 40px 0 14px; }
+h3 { font-size: calc(17px * var(--heading-scale)); margin: 24px 0 10px; }
+.r-lead { color: var(--muted); font-size: 16.5px; max-width: 70ch; margin: 10px 0 0; }
+.r-meta { color: var(--faint); font-size: 13px; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* navigation between the pages of one report set */
+.r-nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 22px 0 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.r-nav a { padding: 7px 12px; border-radius: var(--radius-control); color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; }
+.r-nav a:hover { background: var(--surface-2); color: var(--text); }
+.r-nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+
+/* key figures */
+.r-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 24px 0 0; }
+.r-kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+.r-kpi-value { font-family: var(--font-heading); font-weight: var(--heading-weight); font-size: calc(28px * var(--heading-scale)); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.r-kpi-label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.r-kpi-note { color: var(--faint); font-size: 12px; margin-top: 6px; }
+.r-up { color: var(--good); } .r-down { color: var(--bad); }
+
+/* panels and notes */
+.r-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin: 14px 0; }
+.r-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.r-note { border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 var(--radius-control) var(--radius-control) 0; padding: 12px 16px; margin: 14px 0; color: var(--text); }
+.r-note.warn { border-left-color: var(--warn); } .r-note.bad { border-left-color: var(--bad); } .r-note.good { border-left-color: var(--good); }
+.r-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.r-tag.c1 { background: color-mix(in srgb, var(--c1) 16%, var(--surface)); color: var(--c1); }
+.r-tag.c2 { background: color-mix(in srgb, var(--c2) 16%, var(--surface)); color: var(--c2); }
+.r-tag.c3 { background: color-mix(in srgb, var(--c3) 16%, var(--surface)); color: var(--c3); }
+.r-tag.c4 { background: color-mix(in srgb, var(--c4) 16%, var(--surface)); color: var(--c4); }
+.r-tag.c5 { background: color-mix(in srgb, var(--c5) 16%, var(--surface)); color: var(--c5); }
+.r-tag.c6 { background: color-mix(in srgb, var(--c6) 16%, var(--surface)); color: var(--c6); }
+
+/* filters */
+.r-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 18px 0 12px; }
+.r-search { height: 40px; min-width: 240px; flex: 1 1 260px; padding: 0 12px; border-radius: var(--radius-control); border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; }
+.r-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.r-chip { height: 32px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: inherit; font-size: 13.5px; cursor: pointer; }
+.r-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* tables */
+.r-table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 14px 0; max-height: 80vh; }
+.r-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.r-table th { position: sticky; top: 0; z-index: 1; background: var(--surface); text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); padding: 11px 12px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.r-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.r-table tbody tr:hover { background: var(--surface-2); }
+.r-table .num, .r-table td.num, .r-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r-table tr.r-group td { background: var(--surface-2); font-weight: 600; }
+.r-table tr.r-total td, .r-table tfoot td { font-weight: 650; border-top: 1px solid var(--line-strong); border-bottom: 0; }
+.r-table .r-muted { color: var(--muted); }
+
+/* simple bars: <span class="r-bar"><span style="width: 42%"></span></span> */
+.r-bar { display: inline-block; width: 100%; min-width: 60px; height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; vertical-align: middle; }
+.r-bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.r-bar.c1 > span { background: var(--c1); } .r-bar.c2 > span { background: var(--c2); } .r-bar.c3 > span { background: var(--c3); }
+.r-bar.c4 > span { background: var(--c4); } .r-bar.c5 > span { background: var(--c5); } .r-bar.c6 > span { background: var(--c6); }
+.r-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 8px 0; }
+.r-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+details.r-details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }
+details.r-details summary { cursor: pointer; font-weight: 600; }
+
+/* sources, at the bottom of every report */
+.r-sources { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 13px; }
+.r-sources p { margin: 4px 0; }
+
+@media print {
+  :root { --bg: #fff; --surface: #fff; }
+  .r-nav, .r-toolbar, .r-back { display: none; }
+  .r-page { max-width: none; padding: 0; }
+  .r-table-wrap { max-height: none; overflow: visible; border: 0; }
+  .r-table th { position: static; }
+  .r-kpi, .r-card, .r-table tr { break-inside: avoid; }
+  @page { size: A4; margin: 14mm; }
+}

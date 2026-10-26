@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{title}} · {{site_title}}</title>
+{{icons}}
+<link rel="stylesheet" href="/static/app.css?v={{v}}">
+<link rel="stylesheet" href="/static/brand.css?v={{v}}">
+</head>
+<body data-page="details">
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="/">{{logo_32}}<span>{{site_title}}</span></a>
+    <form method="post" action="/logout"><button class="btn ghost small" type="submit">{{t.logout}}</button></form>
+  </div>
+</header>
+
+<main class="wrap narrow {{archived_class}}">
+  <a class="back" href="/">← {{t.back}}</a>
+  <section class="detail-head">
+    <span class="pill" data-cat="{{category}}">{{category}}</span>
+    <span class="badge archived-only">{{t.archived}}</span>
+    <h1>{{title}}</h1>
+    <p class="lead">{{description}}</p>
+    <div class="tags">{{tags}}</div>
+    <div class="detail-actions">
+      <a class="btn primary" href="/{{slug}}.html">{{t.open}}</a>
+      <button class="btn" data-action="copy" data-slug="{{slug}}">{{t.copy_link}}</button>
+      <button class="btn ghost" data-action="{{archive_action}}" data-slug="{{slug}}">{{archive_label}}</button>
+    </div>
+  </section>
+
+  <dl class="facts">
+    <div><dt>{{t.created}}</dt><dd>{{created}} · {{created_by}}</dd></div>
+    <div><dt>{{t.updated}}</dt><dd>{{updated}} · {{updated_by}}</dd></div>
+    <div><dt>{{t.version}}</dt><dd>v{{version}}</dd></div>
+    <div><dt>{{t.format}}</dt><dd>{{format}}</dd></div>
+  </dl>
+
+  <h2>{{t.versions}}</h2>
+  <div class="table-wrap">
+    <table class="versions">
+      <thead><tr><th>{{t.version}}</th><th>{{t.when}}</th><th>{{t.who}}</th><th>{{t.note}}</th><th class="num">{{t.size}}</th><th></th></tr></thead>
+      <tbody>{{rows}}</tbody>
+    </table>
+  </div>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="application/json" id="data">{{data}}</script>
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>

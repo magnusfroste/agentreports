@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{t.sign_in_title}} · {{site_title}}</title>
+{{icons}}
+<link rel="stylesheet" href="/static/app.css?v={{v}}">
+<link rel="stylesheet" href="/static/brand.css?v={{v}}">
+</head>
+<body class="center">
+<main class="login">
+  {{logo_56}}
+  <h1>{{site_title}}</h1>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{next}}">
+    <label for="pw">{{t.password}}</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+    {{error}}
+    <button class="btn primary wide" type="submit">{{t.sign_in}}</button>
+  </form>
+</main>
+</body>
+</html>
