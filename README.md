@@ -77,7 +77,7 @@ Reports link to each other with relative links (`other-report.html`), so a set o
 | `SITE_TITLE`, `SITE_SUBTITLE` | Heading of the start page. |
 | `REPORTS_LANG` | `en` or `sv`. |
 | `PUBLIC_URL` | The address people use, for the links agents get back; `https://` also marks the session cookie Secure. |
-| `TRUSTED_PROXY_HEADER` | e.g. `CF-Connecting-IP` behind Cloudflare, so the lockout sees the real address. Only set it when every request comes through that proxy. |
+| `TRUSTED_PROXY_HEADER` | e.g. `CF-Connecting-IP` behind Cloudflare, or `X-Forwarded-For` behind Caddy (the last address in it is used), so the lockout sees the real address. Only set it when every request comes through that proxy. |
 | `FILES_DIR`, `FILES_ROUTE` | Optional read-only folder served to signed-in readers under `FILES_ROUTE` (default `/files`), e.g. the source documents reports link to. PDFs and images are shown; anything that could run is served as text. |
 | `BRAND_DIR` | Optional folder with your own logo and colour; see below. |
 | `MAX_REPORT_BYTES` | Default 10 MB. |

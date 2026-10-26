@@ -14,7 +14,8 @@ Environment:
   PUBLIC_URL            e.g. https://reports.example.com, for the links agents get back
   FILES_DIR, FILES_ROUTE   optional read-only folder served under FILES_ROUTE (default /files) to
                         people who are signed in, e.g. the source documents a report links to
-  TRUSTED_PROXY_HEADER  e.g. CF-Connecting-IP, when behind a proxy that sets it (for the lockout)
+  TRUSTED_PROXY_HEADER  e.g. CF-Connecting-IP or X-Forwarded-For, when behind a proxy that sets it
+                        (for the lockout; from a list, the last address is used)
   REPORT_STYLE          on (default) or off: offer agents the report kit (/static/report.css, the tool
                         report_style and a line in the MCP instructions) so reports look like the site
   BRAND_DIR             optional folder: logo.svg/.png, logo-dark.svg/.png, favicon.svg/.png/.ico,
@@ -42,7 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -664,7 +665,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def ip(self):
-        return (self.headers.get(PROXY_HEADER) if PROXY_HEADER else None) or self.client_address[0]
+        # X-Forwarded-For can be a list; the last entry is the one our own proxy added.
+        value = (self.headers.get(PROXY_HEADER) if PROXY_HEADER else None) or ""
+        return value.split(",")[-1].strip() or self.client_address[0]
 
     def send(self, code, body=b"", ctype="text/html; charset=utf-8", headers=None):
         self.send_response(code)
