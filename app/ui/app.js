@@ -61,6 +61,25 @@
     catch { prompt(W.copy_link, url); }
   };
   document.querySelectorAll(".pill[data-cat]").forEach((p) => p.style.setProperty("--h", hue(p.dataset.cat)));
+  document.querySelectorAll(".swatch[data-colour]").forEach((s) => { s.style.background = s.dataset.colour; });
+
+  if (document.body.dataset.page === "brand") {
+    document.querySelectorAll("time[datetime]").forEach((t) => { t.textContent = dtf.format(new Date(t.getAttribute("datetime"))); });
+    document.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-action=brand-restore]");
+      if (!b) return;
+      if (!confirm(b.dataset.version === "0" ? W.brand_base_confirm : W.brand_restore_confirm)) return;
+      b.disabled = true;
+      try {
+        const r = await fetch("/api/brand/restore", { method: "POST", credentials: "same-origin",
+          headers: { "X-Requested-With": "agentreports", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: +b.dataset.version }) });
+        if (!r.ok) throw new Error(r.status);
+        location.reload();
+      } catch { b.disabled = false; toast(W.error); }
+    });
+    return;
+  }
 
   if (document.body.dataset.page === "details") {
     document.querySelectorAll("time[datetime]").forEach((t) => { t.textContent = dtf.format(new Date(t.getAttribute("datetime"))); t.title = ago(t.getAttribute("datetime")); });

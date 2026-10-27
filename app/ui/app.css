@@ -336,6 +336,12 @@ table.versions { width: 100%; border-collapse: collapse; font-size: 14px; }
 .actions { text-align: right; white-space: nowrap; }
 .actions .btn + .btn { margin-left: 6px; }
 
+/* brand page */
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.swatch { width: 40px; height: 40px; border-radius: var(--radius-control); border: 1px solid var(--line-strong); }
+.swatch.small { width: 24px; height: 24px; align-self: center; }
+.brand-now { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+
 /* login and messages */
 body.center { display: grid; place-items: center; padding: 24px 16px; }
 .login {

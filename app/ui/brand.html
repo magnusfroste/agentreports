@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<script src="/static/theme.js?v={{v}}"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{t.brand_title}} · {{site_title}}</title>
+{{icons}}
+<link rel="stylesheet" href="/static/app.css?v={{v}}">
+<link rel="stylesheet" href="/static/brand.css?v={{v}}">
+</head>
+<body data-page="brand">
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="/">{{logo_32}}<span>{{site_title}}</span></a>
+    {{top_actions}}
+  </div>
+</header>
+
+<main class="wrap narrow">
+  <a class="back" href="/">← {{t.back}}</a>
+  <section class="detail-head">
+    <h1>{{t.brand_title}}</h1>
+    <p class="lead">{{t.brand_lead}}</p>
+    <div class="swatches">{{swatches}}</div>
+    <p class="brand-now">{{current}}</p>
+    <div class="detail-actions">{{base_button}}</div>
+  </section>
+
+  <h2>{{t.versions}}</h2>
+  <div class="table-wrap">
+    <table class="versions">
+      <thead><tr><th>{{t.version}}</th><th>{{t.when}}</th><th>{{t.who}}</th><th>{{t.note}}</th><th>{{t.brand_changed}}</th><th></th></tr></thead>
+      <tbody>{{rows}}</tbody>
+    </table>
+  </div>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="application/json" id="data">{{data}}</script>
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>

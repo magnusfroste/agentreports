@@ -113,7 +113,7 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/mcp", body, {"Authorization": "Bearer " + "z" * 40})[0], 401)
         tools = [t["name"] for t in self.mcp("tools/list")["tools"]]
         self.assertEqual(tools, ["publish_report", "report_style", "update_report_details", "list_reports",
-                                 "read_report", "report_versions"])
+                                 "read_report", "report_versions", "get_brand", "update_brand", "restore_brand"])
         self.assertFalse(any("delete" in t or "archive" in t for t in tools))
         init = self.mcp("initialize", {"protocolVersion": "2025-03-26"})
         self.assertEqual(init["protocolVersion"], "2025-03-26")
@@ -244,6 +244,51 @@ class Server(unittest.TestCase):
         self.assertIn(b".r-kpi", css)
         self.assertIn(b"--accent: #7a1fa2", css)  # the brand comes after the defaults
         self.assertLess(css.index(b".r-kpi"), css.index(b"--accent: #7a1fa2"))
+
+    def test_08d_agents_change_the_look_and_people_roll_it_back(self):
+        import base64
+        png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * 64).decode()
+        r = self.tool("update_brand", note="green", settings={"accent": "#1f7a3a", "radius": 2},
+                      files=[{"name": "logo.png", "base64": png}])
+        self.assertEqual((r["version"], r["by"], r["settings"], r["files"]), (1, "hermes", ["accent", "radius"], ["logo.png"]))
+        css = self.req("/static/brand.css")[2].decode()
+        self.assertIn("--accent: #1f7a3a", css)  # live, no restart
+        self.assertIn("--radius: 2px", css)
+        self.assertIn(b"brandlogo", self.req("/logo.svg")[2])  # the site's own file is still there
+        self.assertEqual(self.req("/logo.png")[2][:4], b"\x89PNG")
+        code, h, _ = self.req("/logo.svg")
+        self.assertIn("sandbox", h["Content-Security-Policy"])  # a brand SVG is shown, never run
+        g = self.tool("get_brand")
+        self.assertEqual((g["version"], g["agent_layer"]["accent"], g["settings"]["accent"]), (1, "#1f7a3a", "#1f7a3a"))
+        # refused: unknown keys, bad colours, scripts in an SVG, files that are not what they say, private addresses
+        for args in ({"settings": {"site_title": "x"}}, {"settings": {"accent": "green"}},
+                     {"files": [{"name": "logo.svg", "base64": base64.b64encode(b'<svg onload="alert(1)"/>').decode()}]},
+                     {"files": [{"name": "logo.svg", "base64": base64.b64encode(b'<svg><image href="https://x.example/a.png"/></svg>').decode()}]},
+                     {"files": [{"name": "logo.png", "base64": base64.b64encode(b"GIF89a").decode()}]},
+                     {"files": [{"name": "evil.js", "base64": "YQ=="}]},
+                     {"files": [{"name": "logo.png", "url": "http://example.com/logo.png"}]},
+                     {"files": [{"name": "logo.png", "url": "https://127.0.0.1/logo.png"}]},
+                     {"files": [{"name": "logo.png", "url": "https://localhost/logo.png"}]},
+                     {"settings": {"fonts": [{"family": "X", "file": "missing.woff2"}]}}):
+            r = self.tool("update_brand", note="bad", **args)
+            self.assertTrue(r["isError"], args)
+        self.assertEqual(self.tool("get_brand")["version"], 1)  # nothing refused became a version
+        r = self.tool("update_brand", note="purple again", settings={"accent": None}, key=KEY2)
+        self.assertEqual(r["version"], 2)
+        self.assertIn("--accent: #7a1fa2", self.req("/static/brand.css")[2].decode())  # the site's own accent again
+        # a person rolls back in the browser
+        c = self.login()
+        code, _, body = self.req("/brand", cookie=c)
+        self.assertEqual(code, 200)
+        self.assertIn(b"purple again", body)
+        self.assertEqual(self.req("/api/brand/restore", b'{"version": 0}', {}, "POST", cookie=c)[0], 403)
+        code, _, body = self.req("/api/brand/restore", b'{"version": 1}', {"X-Requested-With": "agentreports"}, "POST", cookie=c)
+        self.assertEqual((code, json.loads(body)["version"]), (200, 3))
+        self.assertIn("--accent: #1f7a3a", self.req("/static/brand.css")[2].decode())
+        r = self.tool("restore_brand", version=0)
+        self.assertEqual(r["version"], 4)
+        self.assertEqual(self.req("/logo.png")[0], 303)  # the agent's file is gone from the live site
+        self.assertEqual([h["version"] for h in self.tool("get_brand")["history"]], [4, 3, 2, 1])
 
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}

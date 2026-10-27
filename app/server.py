@@ -18,6 +18,9 @@ Environment:
                         (for the lockout; from a list, the last address is used)
   REPORT_STYLE          on (default) or off: offer agents the report kit (/static/report.css, the tool
                         report_style and a line in the MCP instructions) so reports look like the site
+  AGENT_BRANDING        on (default) or off: agents may change logo, fonts and colours over MCP
+                        (get_brand, update_brand, restore_brand), as a versioned layer over BRAND_DIR
+                        that people can roll back at /brand
   BRAND_DIR             optional folder: logo.svg/.png, logo-dark.svg/.png, favicon.svg/.png/.ico,
                         apple-touch-icon.png, font files and brand.json (colours, fonts; see README);
                         whatever is there replaces the default, the rest stays
@@ -41,9 +44,10 @@ import urllib.parse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import brandstore
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -56,6 +60,7 @@ FILES_ROUTE = "/" + os.environ.get("FILES_ROUTE", "/files").strip("/")
 PROXY_HEADER = os.environ.get("TRUSTED_PROXY_HEADER", "")
 BRAND_DIR = os.environ.get("BRAND_DIR", "")
 REPORT_STYLE = os.environ.get("REPORT_STYLE", "on").strip().lower() not in ("off", "0", "false", "no")
+AGENT_BRANDING = os.environ.get("AGENT_BRANDING", "on").strip().lower() not in ("off", "0", "false", "no")
 SESSION_DAYS = 30
 LOCKOUT_FAILS, LOCKOUT_SECONDS = 10, 900
 COOKIE = "ar_session"
@@ -65,8 +70,10 @@ PAGE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 's
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MARKED = "https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"
 
+RESERVED.update({"brand"})
 RESERVED.add(FILES_ROUTE.strip("/").split("/")[0])
 store = Store(DATA)
+brands = brandstore.BrandStore(DATA)
 
 
 def log(msg):
@@ -95,6 +102,10 @@ WORDS = {
            "not_found": "Not found", "not_found_text": "There is no report at this address.",
            "details_changed": "Details changed", "view_mode": "View", "view_cards": "Cards", "view_list": "List",
            "theme": "Theme", "theme_system": "System", "theme_light": "Light", "theme_dark": "Dark",
+           "brand": "Look", "brand_title": "The site's look", "brand_lead": "Logo, fonts and colours. Agents can change them over MCP; every change is a version you can go back to.",
+           "brand_base": "Back to the base look", "brand_base_confirm": "Remove what agents changed and go back to the base look? It stays in the history.",
+           "brand_restore_confirm": "Make this version the current look? Nothing is lost.", "brand_none": "Agents have not changed the look.",
+           "brand_changed": "Changed", "brand_current_base": "the base look", "brand_off": "Agents may not change the look on this site (AGENT_BRANDING=off).",
            "empty_archive": "Nothing archived. Archive a report from its menu (⋯) to hide it from the start page."},
     "sv": {"search": "Sök rapporter", "sort_updated": "Senast uppdaterad", "sort_created": "Nyast",
            "sort_title": "Titel A–Ö", "sort_category": "Per kategori", "show_archived": "Arkiv",
@@ -115,6 +126,10 @@ WORDS = {
            "not_found": "Hittades inte", "not_found_text": "Det finns ingen rapport på den här adressen.",
            "details_changed": "Detaljer ändrade", "view_mode": "Visning", "view_cards": "Kort", "view_list": "Lista",
            "theme": "Tema", "theme_system": "System", "theme_light": "Ljust", "theme_dark": "Mörkt",
+           "brand": "Profil", "brand_title": "Sidans profil", "brand_lead": "Logga, typsnitt och färger. Agenter kan ändra dem via MCP; varje ändring är en version du kan gå tillbaka till.",
+           "brand_base": "Tillbaka till grundprofilen", "brand_base_confirm": "Ta bort det agenterna ändrat och gå tillbaka till grundprofilen? Det finns kvar i historiken.",
+           "brand_restore_confirm": "Gör den här versionen till den aktuella profilen? Inget går förlorat.", "brand_none": "Agenterna har inte ändrat profilen.",
+           "brand_changed": "Ändrat", "brand_current_base": "grundprofilen", "brand_off": "Agenter får inte ändra profilen på den här sidan (AGENT_BRANDING=off).",
            "empty_archive": "Inget arkiverat. Arkivera en rapport från dess meny (⋯) för att dölja den från startsidan."},
 }
 T = WORDS[LANG]
@@ -354,6 +369,46 @@ def t_style(_):
                       "End with r-sources: what the report is built on and what could not be read."]}
 
 
+BRAND_HELP = ("Colours as #rrggbb or #rrggbbaa: " + ", ".join(brandstore.COLOURS) + "; dark: an object with "
+              + ", ".join(brandstore.DARK) + " for dark mode; heading_font, body_font (family names, the font files "
+              "given in files and declared in fonts); heading_weight 100–900; heading_scale 0.7–1.6; radius 0–24; "
+              "series: up to six chart colours; fonts: [{family, file, weight, style, unicode_range}].")
+
+
+def t_get_brand(_):
+    cur = brands.current()
+    return {"version": cur, "current": f"v{cur}" if cur else "the base look (no agent changes)",
+            "settings": BRAND_INFO.get("settings", {}), "agent_layer": brands.settings(),
+            "files": {n: ("agent" if n in brands.files() else "site") for n in BRANDING["files"]
+                      if BRANDING["files"][n] != DEFAULT_ICONS.get(n)} | {f"fonts/{n}": "font" for n in BRANDING["fonts"]},
+            "history": brands.history(20), "allowed": BRAND_HELP,
+            "files_allowed": f"{', '.join(brandstore.IMAGES)} (images up to {brandstore.MAX_IMAGE // 1024} kB) and fonts "
+                             f"named like body.woff2 (up to {brandstore.MAX_FONT // 1024} kB)",
+            "note": "update_brand changes it, restore_brand(version) goes back, version 0 is the base look. People see "
+                    "the history at /brand and can restore it too."}
+
+
+def t_update_brand(a, who):
+    files = dict(brandstore.decode_file(item) for item in (a.get("files") or []))
+    meta = brands.update(who, settings=a.get("settings"), files=files, note=a.get("note"),
+                         base_dirs=[BRAND_DIR] if BRAND_DIR else [])
+    reload_brand()
+    log(f"{who}: brand v{meta['version']} ({', '.join(meta['settings'] + meta['files'])})")
+    return {**meta, "url": PUBLIC_URL + "/brand",
+            "result": "Live now on the start page and in reports that link /static/report.css (within minutes). "
+                      "Check it in the browser; restore_brand goes back."}
+
+
+def t_restore_brand(a, who):
+    try:
+        meta = brands.restore(a.get("version", 0), who)
+    except (KeyError, ValueError, TypeError):
+        raise ValueError("No such version; see get_brand for the history (0 is the base look).")
+    reload_brand()
+    log(f"{who}: brand v{meta['version']} ({meta['note']})")
+    return meta
+
+
 S = {"type": "string"}
 TOOLS = [
     ("publish_report", lambda a, w: t_publish(a, w),
@@ -389,6 +444,24 @@ TOOLS = [
     ("report_versions", lambda a, w: t_versions(a),
      "Every version of a report: when, by whom, the note and a link to each.", {"slug": S}, ["slug"]),
 ]
+if AGENT_BRANDING:
+    TOOLS += [
+        ("get_brand", lambda a, w: t_get_brand(a),
+         "The site's look: current logo, fonts and colours, what agents changed, the history, and what may be set.",
+         {}, []),
+        ("update_brand", lambda a, w: t_update_brand(a, w),
+         "Change the site's look: colours, fonts, logo and icons, in one change that becomes one version (people "
+         "can roll it back). E.g. to match a company's website: take its logo, fonts and colours. Files can be "
+         "URLs (https, public sites), fetched by the server, so they do not pass through you. " + BRAND_HELP,
+         {"settings": {"type": "object", "description": "brand.json keys to set; null removes one"},
+          "files": {"type": "array", "description": "[{name, url} | {name, base64} | {name, remove: true}]; names: "
+                                                    + ", ".join(brandstore.IMAGES) + ", or fonts like body.woff2",
+                    "items": {"type": "object"}},
+          "note": {**S, "description": "What changed and why, e.g. 'colours and fonts from example.com'"}}, ["note"]),
+        ("restore_brand", lambda a, w: t_restore_brand(a, w),
+         "Go back to an earlier look (a version from get_brand), or to the base look with version 0.",
+         {"version": {"type": "integer"}}, ["version"]),
+    ]
 if REPORT_STYLE:
     TOOLS.insert(1, ("report_style", lambda a, w: t_style(a),
                      "How reports on this site should look: the stylesheet to link, the classes to use, a page "
@@ -398,7 +471,8 @@ BY_NAME = {n: fn for n, fn, *_ in TOOLS}
 
 def tool_list():
     return [{"name": n, "description": d, "inputSchema": {"type": "object", "properties": p, "required": r},
-             "annotations": {"readOnlyHint": n not in ("publish_report", "update_report_details"),
+             "annotations": {"readOnlyHint": n not in ("publish_report", "update_report_details", "update_brand",
+                                                       "restore_brand"),
                              "destructiveHint": False}} for n, _, d, p, r in TOOLS]
 
 
@@ -462,20 +536,45 @@ BRAND_FILES = ("logo.svg", "logo.png", "logo-dark.svg", "logo-dark.png", "favico
                "favicon.ico", "apple-touch-icon.png")
 
 
-def brand():
-    """Files, fonts and colours from BRAND_DIR over the defaults. Returns (assets, css, brand settings)."""
-    found, cfg = {}, {}
-    if BRAND_DIR:
-        for name in BRAND_FILES:
-            path = os.path.join(BRAND_DIR, name)
-            if os.path.isfile(path) and os.path.getsize(path) <= 2 * 1024 * 1024:
-                with open(path, "rb") as f:
-                    found[name] = f.read()
+def brand_layers():
+    """BRAND_DIR (the operator's) first, then the layer agents maintain, when that is allowed."""
+    layers = [BRAND_DIR] if BRAND_DIR else []
+    agent_dir = brands.layer_dir() if AGENT_BRANDING else None
+    return layers + ([agent_dir] if agent_dir else [])
+
+
+def merged_settings(layers):
+    cfg = {}
+    for layer in layers:
         try:
-            with open(os.path.join(BRAND_DIR, "brand.json"), encoding="utf-8") as f:
-                cfg = json.load(f)
+            with open(os.path.join(layer, "brand.json"), encoding="utf-8") as f:
+                more = json.load(f)
         except (OSError, ValueError):
-            cfg = {}
+            continue
+        for key, value in more.items():
+            cfg[key] = {**cfg.get("dark", {}), **value} if key == "dark" and isinstance(value, dict) else value
+    return cfg
+
+
+def layer_file(layers, name):
+    """The path of name in the last layer that has it."""
+    for layer in reversed(layers):
+        path = os.path.join(layer, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def brand():
+    """Files, fonts and colours from the brand layers over the defaults. Returns (assets, css)."""
+    layers = brand_layers()
+    found = {}
+    for name in BRAND_FILES:
+        path = layer_file(layers, name)
+        if path and os.path.getsize(path) <= 2 * 1024 * 1024:
+            with open(path, "rb") as f:
+                found[name] = f.read()
+    cfg = merged_settings(layers)
     if "favicon.svg" not in found and "favicon.png" not in found and "logo.svg" in found:
         found["favicon.svg"] = found["logo.svg"]
 
@@ -494,10 +593,11 @@ def brand():
     # Fonts: files in BRAND_DIR, declared in brand.json, served from this site (nothing from a font CDN).
     for font in cfg.get("fonts") or []:
         family, file = font_name(font.get("family")), str(font.get("file") or "")
-        if not family or not re.fullmatch(r"[A-Za-z0-9._-]+\.woff2?", file) or not os.path.isfile(os.path.join(BRAND_DIR, file)):
-            log(f"brand.json: font {font!r} skipped (family, and a .woff2 file in BRAND_DIR)")
+        path = layer_file(layers, file) if re.fullmatch(r"[A-Za-z0-9._-]+\.woff2?", file) else None
+        if not family or not path:
+            log(f"brand.json: font {font!r} skipped (family, and a .woff2 file in the brand folder)")
             continue
-        with open(os.path.join(BRAND_DIR, file), "rb") as f:
+        with open(path, "rb") as f:
             found["fonts/" + file] = f.read()
         weight = str(font.get("weight") or "400")
         style = "italic" if font.get("style") == "italic" else "normal"
@@ -539,7 +639,8 @@ def brand():
         rules.append(":root[data-theme=\"dark\"] { " + block + " }")
     if cfg and not rules:
         log("brand.json: nothing usable in it (colours are #rrggbb, fonts need a file); ignored")
-    BRAND_INFO.update(colours={k: cfg[k] for k in ("accent", "accent_text", "background", "surface", "text", "muted")
+    BRAND_INFO.clear()
+    BRAND_INFO.update(settings=cfg, colours={k: cfg[k] for k in ("accent", "accent_text", "background", "surface", "text", "muted")
                                if hex_color(cfg.get(k))},
                       heading_font=font_name(cfg.get("heading_font")), body_font=font_name(cfg.get("body_font")))
     return found, "\n".join(rules).encode()
@@ -568,13 +669,26 @@ def brand_html(found):
 
 
 ASSETS = {n: asset(n) for n in os.listdir(UI)}
-BRAND, BRAND_CSS = brand()
-ASSETS.update(BRAND)
-ASSETS["brand.css"] = BRAND_CSS
-REPORT_CSS = ASSETS.pop("report.css") + b"\n/* brand */\n" + BRAND_CSS
-PUBLIC_ASSETS = BRAND_FILES
-ASSET_V = hashlib.sha256(b"".join(ASSETS[n] for n in sorted(ASSETS))).hexdigest()[:10]
-ICONS, LOGO_32, LOGO_56 = (x.replace("{v}", ASSET_V) for x in brand_html(BRAND))
+REPORT_KIT = ASSETS.pop("report.css")
+DEFAULT_ICONS = {n: ASSETS[n] for n in ("favicon.svg", "favicon.ico", "apple-touch-icon.png")}
+BRANDING = {}          # the current brand, swapped as a whole when it changes
+_brand_lock = threading.Lock()
+
+
+def reload_brand():
+    files, css = brand()
+    served = {**DEFAULT_ICONS, **{n: d for n, d in files.items() if not n.startswith("fonts/")}}
+    v = hashlib.sha256(b"".join(ASSETS[n] for n in sorted(ASSETS)) + css
+                       + b"".join(files[n] for n in sorted(files))).hexdigest()[:10]
+    icons, logo_32, logo_56 = (x.replace("{v}", v) for x in brand_html(files))
+    global BRANDING
+    with _brand_lock:  # one new dict, swapped in whole: a request never sees half a brand
+        BRANDING = dict(files=served, fonts={n[6:]: d for n, d in files.items() if n.startswith("fonts/")},
+                        css=css, report_css=REPORT_KIT + b"\n/* brand */\n" + css, v=v,
+                        icons=icons, logo_32=logo_32, logo_56=logo_56)
+
+
+reload_brand()
 TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml",
          ".ico": "image/x-icon", ".png": "image/png", ".html": "text/html; charset=utf-8"}
 
@@ -587,14 +701,30 @@ def json_script(obj):
     return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\!--")
 
 
+THEME_SWITCH = """<div class="theme" role="group" aria-label="{theme}">
+        <button type="button" data-theme-set="system" title="{system}" aria-label="{system}"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
+        <button type="button" data-theme-set="light" title="{light}" aria-label="{light}"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button type="button" data-theme-set="dark" title="{dark}" aria-label="{dark}"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      </div>"""
+
+
+def top_actions():
+    switch = THEME_SWITCH.format(theme=esc(T["theme"]), system=esc(T["theme_system"]), light=esc(T["theme_light"]),
+                                 dark=esc(T["theme_dark"]))
+    link = f'<a class="btn ghost small" href="/brand">{esc(T["brand"])}</a>' if AGENT_BRANDING or BRAND_DIR else ""
+    return (f'<div class="top-actions">{switch}{link}<form method="post" action="/logout">'
+            f'<button class="btn ghost small" type="submit">{esc(T["logout"])}</button></form></div>')
+
+
 def page(name, **values):
     """Fill a template in one pass, so text from a report can never fill in another placeholder."""
     values.setdefault("lang", LANG)
-    values.setdefault("v", ASSET_V)
+    values.setdefault("v", BRANDING["v"])
     values.setdefault("site_title", esc(TITLE))
-    values.setdefault("icons", ICONS)
-    values.setdefault("logo_32", LOGO_32)
-    values.setdefault("logo_56", LOGO_56)
+    values.setdefault("icons", BRANDING["icons"])
+    values.setdefault("top_actions", top_actions())
+    values.setdefault("logo_32", BRANDING["logo_32"])
+    values.setdefault("logo_56", BRANDING["logo_56"])
 
     def fill(m):
         if m.group(1):
@@ -647,6 +777,34 @@ def details(slug):
                 archived_class="is-archived" if archived else "",
                 archive_action="unarchive" if archived else "archive",
                 archive_label=esc(T["unarchive"] if archived else T["archive"]),
+                data=json_script({"lang": LANG, "words": T}))
+
+
+def brand_page():
+    cur = brands.current()
+    cfg = BRAND_INFO.get("settings", {})
+    sw = []
+    for key in ("background", "surface", "text", "accent", "accent_text"):
+        if brandstore.HEX.match(str(cfg.get(key, ""))):
+            sw.append(f'<span class="swatch" data-colour="{esc(cfg[key])}" title="{esc(key)} {esc(cfg[key])}"></span>')
+    for i, c in enumerate(cfg.get("series") or []):
+        if brandstore.HEX.match(str(c)):
+            sw.append(f'<span class="swatch small" data-colour="{esc(c)}" title="series {i + 1} {esc(c)}"></span>')
+    fonts = " · ".join(esc(cfg[k]) for k in ("heading_font", "body_font") if cfg.get(k))
+    rows = []
+    for h in brands.history():
+        changed = ", ".join(h.get("settings", []) + h.get("files", []))
+        restore = "" if h["version"] == cur else (
+            f'<button class="btn small" data-action="brand-restore" data-version="{h["version"]}">{esc(T["restore"])}</button>')
+        rows.append(f'<tr><td><b>v{h["version"]}</b>{" <span class=badge>" + esc(T["current"]) + "</span>" if h["version"] == cur else ""}</td>'
+                    f'<td>{fmt_time(h.get("at"))}</td><td title="{esc(h.get("by"))}">{esc(shown(h.get("by")))}</td>'
+                    f'<td>{esc(h.get("note") or "")}</td><td>{esc(changed)}</td><td class="actions">{restore}</td></tr>')
+    if not rows:
+        rows.append(f'<tr><td colspan="6">{esc(T["brand_none"] if AGENT_BRANDING else T["brand_off"])}</td></tr>')
+    current = f'{esc(T["current"]).capitalize()}: ' + (f"v{cur}" if cur else esc(T["brand_current_base"])) + (f" · {fonts}" if fonts else "")
+    base = (f'<button class="btn" data-action="brand-restore" data-version="0">{esc(T["brand_base"])}</button>'
+            if cur and AGENT_BRANDING else "")
+    return page("brand.html", swatches="".join(sw), current=current, base_button=base, rows="".join(rows),
                 data=json_script({"lang": LANG, "words": T}))
 
 
@@ -731,19 +889,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             return self.json(200, {"ok": True, "version": VERSION})
         name = path.lstrip("/")
-        if (name in PUBLIC_ASSETS and name in ASSETS) or (
-                path.startswith("/static/") and path[8:] in ASSETS and not path.endswith(".html")):
-            name = name.removeprefix("static/")
+        b = BRANDING
+        if name in b["files"]:
+            # A brand image may come from an agent: an SVG is shown, never run.
+            extra = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"} if name.endswith(".svg") else {}
+            return self.send(200, b["files"][name], TYPES.get(os.path.splitext(name)[1], "application/octet-stream"),
+                             {"Cache-Control": "public, max-age=604800", **extra})
+        if path == "/static/brand.css":
+            return self.send(200, b["css"], "text/css; charset=utf-8", {"Cache-Control": "public, max-age=604800"})
+        if path.startswith("/static/") and path[8:] in ASSETS and not path.endswith(".html"):
+            name = path[8:]
             return self.send(200, ASSETS[name], TYPES.get(os.path.splitext(name)[1], "application/octet-stream"),
                              {"Cache-Control": "public, max-age=604800"})
-        if path.startswith("/brand/fonts/") and "fonts/" + path[13:] in ASSETS:
+        if path.startswith("/brand/fonts/") and path[13:] in b["fonts"]:
             # Reports run sandboxed (an opaque origin), and fonts are always fetched with CORS.
-            return self.send(200, ASSETS["fonts/" + path[13:]], "font/woff2" if path.endswith("2") else "font/woff",
+            return self.send(200, b["fonts"][path[13:]], "font/woff2" if path.endswith("2") else "font/woff",
                              {"Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*"})
         if path == "/static/report.css":
             if not REPORT_STYLE:
                 return self.send(404, b"", "text/plain")
-            return self.send(200, REPORT_CSS, "text/css; charset=utf-8",
+            return self.send(200, b["report_css"], "text/css; charset=utf-8",
                              {"Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*"})
         if path == "/mcp":
             return self.send(405, b"", headers={"Allow": "POST"})
@@ -758,6 +923,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             return self.redirect("/") if path != "/" else self.ours(dashboard())
+        if path == "/brand":
+            return self.ours(brand_page())
         if path == "/api/reports":
             return self.json(200, {"reports": [public(m) for m in store.all()]}, {"Cache-Control": "no-store"})
         m = re.match(r"^/r/([a-z0-9-]+)/?$", path)
@@ -830,6 +997,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(401, {"error": "sign in"})
         if not same_origin:
             return self.json(403, {"error": "forbidden"})
+        if path == "/api/brand/restore" and AGENT_BRANDING:
+            try:
+                meta = brands.restore(int(json.loads(self.body(10_000) or b"{}").get("version", 0)), "browser")
+            except (KeyError, ValueError, TypeError):
+                return self.json(404, {"error": "not found"})
+            reload_brand()
+            log(f"browser ({self.ip()}): brand v{meta['version']} ({meta['note']})")
+            return self.json(200, meta)
         m = re.match(r"^/api/reports/([a-z0-9-]+)/(archive|unarchive|restore)$", path)
         if not m:
             return self.json(404, {"error": "not found"})
@@ -890,7 +1065,8 @@ def main():
     port = int(os.environ.get("PORT", "8000"))
     log(f"agentreports {VERSION} on :{port}, {len(store.all())} reports, agents: {', '.join(sorted(KEYS.values())) or '-'}"
         + (f", files {FILES_DIR} at {FILES_ROUTE}" if FILES_DIR else "")
-        + (f", brand: {', '.join(sorted(BRAND)) or 'no files'}{' + styles' if BRAND_CSS else ''}" if BRAND_DIR else ""))
+        + f", brand: {', '.join(sorted(n for n in BRANDING['files'] if n not in DEFAULT_ICONS or BRANDING['files'][n] != DEFAULT_ICONS[n])) or 'default icons'}"
+        + f"{' + styles' if BRANDING['css'] else ''}{f' (agent layer v{brands.current()})' if AGENT_BRANDING and brands.current() else ''}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

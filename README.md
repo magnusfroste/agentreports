@@ -61,6 +61,8 @@ mcp_servers:
 |---|---|
 | `publish_report` | `title`, `content` (a full HTML page, or markdown with `format: markdown`), `description`, `category`, `tags`, `slug`, `note`, `expected_version`, `requested_by`. Returns the link and version. |
 | `update_report_details` | Change title, description, category or tags without new content. |
+| `report_style` | How reports should look here: the stylesheet, its classes, a page skeleton. |
+| `get_brand`, `update_brand`, `restore_brand` | The site's look: read it, change it as a new version, or go back. |
 | `list_reports` | Reports with their details and links, and the categories in use (so agents reuse them). |
 | `read_report` | A report's content, current or an older `version`, to build on. |
 | `report_versions` | Every version: when, by whom, the note, a link. |
@@ -79,7 +81,8 @@ Reports link to each other with relative links (`other-report.html`), so a set o
 | `PUBLIC_URL` | The address people use, for the links agents get back; `https://` also marks the session cookie Secure. |
 | `TRUSTED_PROXY_HEADER` | e.g. `CF-Connecting-IP` behind Cloudflare, or `X-Forwarded-For` behind Caddy (the last address in it is used), so the lockout sees the real address. Only set it when every request comes through that proxy. |
 | `FILES_DIR`, `FILES_ROUTE` | Optional read-only folder served to signed-in readers under `FILES_ROUTE` (default `/files`), e.g. the source documents reports link to. PDFs and images are shown; anything that could run is served as text. |
-| `BRAND_DIR` | Optional folder with your own logo and colour; see below. |
+| `BRAND_DIR` | Optional folder with your own logo, fonts and colours; see below. |
+| `AGENT_BRANDING` | `on` (default) or `off`: may agents change the look over MCP (see below). |
 | `MAX_REPORT_BYTES` | Default 10 MB. |
 
 ### Your logo, colours and fonts
@@ -118,6 +121,19 @@ Every key is optional. Colours are `#rrggbb` or `#rrggbbaa`. `accent` colours bu
 ## Reports that look like the site
 
 With `REPORT_STYLE=on` (the default) agents are told, in the MCP instructions and by the tool `report_style`, to link `/static/report.css` and build reports from its `r-*` classes: header, page navigation, key figures, notes, tags, filters, tables with sticky headers, bars, legends and a sources footer, for screen, phone, dark mode and A4 print. The stylesheet carries the brand, so reports look like the start page — and follow it when the brand changes, even old ones. `REPORT_STYLE=off` removes the tool, the instruction and the stylesheet; agents then style reports as they like.
+
+## Agents can change the look, too
+
+With `AGENT_BRANDING=on` (the default) an agent can be asked to *"take the look from example.com"*: `get_brand` shows the current logo, fonts, colours and history; `update_brand` changes them in one call that becomes one version; `restore_brand` goes back (version 0 is the base look). It is a layer over `BRAND_DIR`, never a replacement, and people see the history at `/brand` and roll back from there.
+
+What keeps it safe without a key of its own:
+
+- Only the `brand.json` settings above can be set, each validated; anything else is refused.
+- Files are checked by content (a PNG must be a PNG, a font a WOFF2), with size limits. SVGs with scripts, event handlers, external links or embedded documents are refused, and brand SVGs are served sandboxed.
+- Files can be given as URLs, so a 100 kB font does not pass through the model: fetched over https only, from public addresses only (no private, loopback or link-local IPs, also after redirects), with a size cap and a timeout.
+- Every change and every restore is a new version with who and why; nothing is overwritten.
+
+`AGENT_BRANDING=off` removes the tools and ignores the agent layer.
 
 ## Bring existing reports
 

@@ -13,6 +13,7 @@ services:
       TRUSTED_PROXY_HEADER: ${TRUSTED_PROXY_HEADER:-}
       AGENT_NAMES: ${AGENT_NAMES:-}
       REPORT_STYLE: ${REPORT_STYLE:-on}
+      AGENT_BRANDING: ${AGENT_BRANDING:-on}
       # FILES_DIR: /files        # serve a read-only folder to signed-in readers
       # FILES_ROUTE: /files
       # BRAND_DIR: /brand        # your logo, icon and colour (see README)
