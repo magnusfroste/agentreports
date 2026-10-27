@@ -244,6 +244,8 @@
     more.addEventListener("click", () => { state.shown += spec.page || 50; render(); });
     node.appendChild(more);
 
+    // Short values (dates, months, codes, invoice numbers) stay on one line; long text may wrap.
+    const short = new Set(show.filter((c) => spec.rows.every((r) => plain(r[at(c)]).length <= 16)));
     const filtered = () => {
       const q = (input ? input.value.trim().toLowerCase() : state.q.toLowerCase());
       let rows = spec.rows.filter((r) => Object.entries(state.filters).every(([f, v]) => !v || plain(r[at(f)]) === v)
@@ -259,8 +261,9 @@
       }
       return rows;
     };
-    const cell = (v, t) => {
+    const cell = (v, t, c) => {
       const td = document.createElement("td");
+      if (short.has(c)) td.style.whiteSpace = "nowrap";
       if (t === "number") { td.className = "num"; td.textContent = v == null ? "" : nf.format(v); }
       else if (t === "link" && v) {
         const a = document.createElement("a");
@@ -287,7 +290,7 @@
       const tbody = table.createTBody();
       for (const r of rows.slice(0, state.shown)) {
         const tr = tbody.insertRow();
-        for (const c of show) tr.appendChild(cell(r[at(c)], type(c)));
+        for (const c of show) tr.appendChild(cell(r[at(c)], type(c), c));
       }
       if ((spec.sum || []).length) {
         const tr = table.createTFoot().insertRow();
