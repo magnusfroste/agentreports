@@ -380,7 +380,8 @@
     const archived = reports.filter((r) => r.archived).length;
     el.foot.innerHTML = `<a class="side-item" href="/" data-archive>${esc(W.show_archived)}${archived ? ` <span class="n">${archived}</span>` : ""}</a>`
       + (DATA.brand_page ? `<a class="side-item" href="/brand">${esc(W.brand)}</a>` : "")
-      + `<div class="side-row">${THEME}<form method="post" action="/logout"><button class="btn ghost small" type="submit">${esc(W.logout)}</button></form></div>`;
+      + `<div class="side-row">${THEME}<form method="post" action="/logout"><button class="btn ghost small" type="submit">${esc(W.logout)}</button></form></div>`
+      + `<div class="side-version" id="side-version">${versionLine()}</div>`;
     wireTheme(el.foot);
   };
   el.nav.addEventListener("toggle", (e) => {
@@ -391,6 +392,45 @@
     store.set("closed", JSON.stringify([...closed]));
   }, true);
   el.sq.addEventListener("input", renderSide);
+
+  // --- version, and whether GitHub has a newer one ---
+  let latest = null;
+  const versionLine = () => {
+    if (!latest || !latest.update) return `<span title="${esc(latest && latest.subject || "")}">AgentReports ${esc(DATA.version)}</span>`;
+    const link = `<a href="${esc(latest.repo_url)}/commits/main" target="_blank" rel="noopener" title="${esc(latest.subject || W.whats_new)}">${esc(W.update_available)} ${esc(latest.latest)}</a>`;
+    const button = latest.can_update ? ` <button class="btn small primary" type="button" id="update-now">${esc(W.update_now)}</button>` : "";
+    return `<span class="update">AgentReports ${esc(DATA.version)} → ${link}</span>${button}`;
+  };
+  const checkVersion = async () => {
+    if (!DATA.update_check) return;
+    try {
+      const r = await fetch("/api/system/version", { credentials: "same-origin" });
+      if (!r.ok) return;
+      latest = await r.json();
+      const box = $("#side-version");
+      if (box) box.innerHTML = versionLine();
+    } catch { /* offline: the version line stays as it is */ }
+  };
+  document.addEventListener("click", async (e) => {
+    if (!e.target.closest("#update-now")) return;
+    if (!confirm(W.update_confirm)) return;
+    e.target.disabled = true;
+    try {
+      const r = await fetch("/api/system/update", { method: "POST", credentials: "same-origin",
+        headers: { "X-Requested-With": "agentreports", "Content-Type": "application/json" }, body: "{}" });
+      if (!r.ok) throw new Error(r.status);
+      toast(W.update_started);
+      const from = DATA.version;
+      for (let i = 0; i < 60; i++) {   // up to five minutes
+        await new Promise((ok) => setTimeout(ok, 5000));
+        try {
+          const h = await (await fetch("/health", { cache: "no-store" })).json();
+          if (h.version && h.version !== from) return location.reload();
+        } catch { /* restarting */ }
+      }
+      location.reload();
+    } catch { e.target.disabled = false; toast(W.error); }
+  });
 
   // the theme switch, also in the panel
   const THEME = `<div class="theme" role="group" aria-label="${esc(W.theme)}">
@@ -496,4 +536,5 @@
   $("#scrim").addEventListener("click", () => document.body.classList.remove("side-open"));
 
   route();
+  checkVersion();
 })();

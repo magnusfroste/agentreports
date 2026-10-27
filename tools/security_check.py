@@ -130,7 +130,7 @@ def main():
     p.check("Public", "the sign-in page leaks no report data", b'"reports"' not in b and b"publish_report" not in b, "")
 
     # --- 2. nothing else without signing in ---
-    protected = ["/", "/index.html", "/api/reports", "/brand", "/r/x", "/r/x/info", "/r/x/v/1", "/x", "/x.html", "/x.md",
+    protected = ["/", "/index.html", "/api/reports", "/api/system/version", "/brand", "/r/x", "/r/x/info", "/r/x/v/1", "/x", "/x.html", "/x.md",
                  a.files_route + "/", a.files_route + "/x.pdf"]
     for slug in slugs:
         protected += [f"/{slug}.html", f"/{slug}.md", f"/{slug}", f"/r/{slug}", f"/r/{slug}/info", f"/r/{slug}/v/1"]
@@ -156,7 +156,7 @@ def main():
 
     # --- 4. browser actions need a session and the site's own page ---
     actions = [f"/api/reports/{slugs[0]}/archive", f"/api/reports/{slugs[0]}/unarchive",
-               f"/api/reports/{slugs[0]}/restore", "/api/brand/restore"]
+               f"/api/reports/{slugs[0]}/restore", "/api/brand/restore", "/api/system/update"]
     for path in actions:
         for label, headers in (("no session", {}),
                                ("forged session", {"Cookie": f"ar_session={now + 86400}.{secrets.token_hex(32)}"}),

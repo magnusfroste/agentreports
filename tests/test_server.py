@@ -47,7 +47,7 @@ class Server(unittest.TestCase):
         env = {**os.environ, "DATA_DIR": os.path.join(cls.tmp.name, "data"), "PORT": str(cls.port),
                "REPORTS_PASSWORD": PASSWORD, "MCP_KEYS": f"hermes:{KEY},laptop:{KEY2},short:abc",
                "FILES_DIR": cls.files, "FILES_ROUTE": "/sources", "BRAND_DIR": os.path.join(cls.tmp.name, "brand"), "AGENT_NAMES": "hermes=Hermes,laptop=Ana Lind", "REPORTS_LANG": "sv", "SITE_TITLE": "Test & Co",
-               "PYTHONDONTWRITEBYTECODE": "1"}
+               "PYTHONDONTWRITEBYTECODE": "1", "UPDATE_CHECK": "off"}
         cls.proc = subprocess.Popen([sys.executable, "server.py"], cwd=APP, env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         for _ in range(50):
@@ -313,6 +313,18 @@ class Server(unittest.TestCase):
             r = conn.getresponse(); r.read()
             self.assertEqual(r.status, 200)
         conn.close()
+
+    def test_08f_version_and_update(self):
+        c = self.login()
+        code, _, body = self.req("/api/system/version", cookie=c)
+        info = json.loads(body)
+        self.assertEqual((code, info["can_update"]), (200, False))
+        self.assertRegex(info["current"], r"^\d+\.\d+\.\d+$")
+        self.assertEqual(self.req("/api/system/version")[0], 303)  # people only
+        h = {"X-Requested-With": "agentreports"}
+        self.assertEqual(self.req("/api/system/update", b"{}", h, "POST", cookie=c)[0], 404)  # no deploy hook set
+        self.assertEqual(self.req("/api/system/update", b"{}", h, "POST")[0], 401)
+        self.assertEqual(self.req("/api/system/update", b"{}", {}, "POST", cookie=c)[0], 403)
 
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}

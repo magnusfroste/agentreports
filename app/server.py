@@ -21,6 +21,10 @@ Environment:
   AGENT_BRANDING        on (default) or off: agents may change logo, fonts and colours over MCP
                         (get_brand, update_brand, restore_brand), as a versioned layer over BRAND_DIR
                         that people can roll back at /brand
+  UPDATE_CHECK          on (default) or off: compare the version with the one on GitHub (UPDATE_REPO,
+                        default magnusfroste/agentreports) and show it to people when a newer one exists
+  DEPLOY_HOOK_URL       optional: a deploy trigger of the platform (Easypanel's "Deployment Trigger", a
+                        redeploy endpoint); people get an "Update now" button that calls it
   BRAND_DIR             optional folder: logo.svg/.png, logo-dark.svg/.png, favicon.svg/.png/.ico,
                         apple-touch-icon.png, font files and brand.json (colours, fonts; see README);
                         whatever is there replaces the default, the rest stays
@@ -41,13 +45,14 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import brandstore
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.2.2"
+VERSION = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")).read().strip()
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -59,6 +64,9 @@ FILES_DIR = os.environ.get("FILES_DIR", "")
 FILES_ROUTE = "/" + os.environ.get("FILES_ROUTE", "/files").strip("/")
 PROXY_HEADER = os.environ.get("TRUSTED_PROXY_HEADER", "")
 BRAND_DIR = os.environ.get("BRAND_DIR", "")
+UPDATE_CHECK = os.environ.get("UPDATE_CHECK", "on").strip().lower() not in ("off", "0", "false", "no")
+UPDATE_REPO = os.environ.get("UPDATE_REPO", "magnusfroste/agentreports").strip()
+DEPLOY_HOOK_URL = os.environ.get("DEPLOY_HOOK_URL", "").strip()
 REPORT_STYLE = os.environ.get("REPORT_STYLE", "on").strip().lower() not in ("off", "0", "false", "no")
 AGENT_BRANDING = os.environ.get("AGENT_BRANDING", "on").strip().lower() not in ("off", "0", "false", "no")
 SESSION_DAYS = 30
@@ -106,6 +114,8 @@ WORDS = {
            "brand_base": "Back to the base look", "brand_base_confirm": "Remove what agents changed and go back to the base look? It stays in the history.",
            "brand_restore_confirm": "Make this version the current look? Nothing is lost.", "brand_none": "Agents have not changed the look.",
            "brand_changed": "Changed", "brand_current_base": "the base look", "brand_off": "Agents may not change the look on this site (AGENT_BRANDING=off).",
+           "update_available": "New version", "update_now": "Update now", "update_started": "Updating — the page reloads when it is back",
+           "update_confirm": "Update the site now? It is away for a minute while the platform deploys.", "whats_new": "What is new",
            "overview": "Overview", "pinned": "Pinned", "pin": "Pin", "unpin": "Unpin", "open_tab": "Open in a new tab",
            "panel": "Panel", "menu_open": "Open the menu", "not_found_report": "That report does not exist (any more).",
            "empty_archive": "Nothing archived. Archive a report from its menu (⋯) to hide it from the start page."},
@@ -132,6 +142,8 @@ WORDS = {
            "brand_base": "Tillbaka till grundprofilen", "brand_base_confirm": "Ta bort det agenterna ändrat och gå tillbaka till grundprofilen? Det finns kvar i historiken.",
            "brand_restore_confirm": "Gör den här versionen till den aktuella profilen? Inget går förlorat.", "brand_none": "Agenterna har inte ändrat profilen.",
            "brand_changed": "Ändrat", "brand_current_base": "grundprofilen", "brand_off": "Agenter får inte ändra profilen på den här sidan (AGENT_BRANDING=off).",
+           "update_available": "Ny version", "update_now": "Uppdatera nu", "update_started": "Uppdaterar — sidan laddas om när den är tillbaka",
+           "update_confirm": "Uppdatera sidan nu? Den är borta en minut medan plattformen deployar.", "whats_new": "Vad som är nytt",
            "overview": "Översikt", "pinned": "Fästa", "pin": "Fäst", "unpin": "Lossa", "open_tab": "Öppna i ny flik",
            "panel": "Panel", "menu_open": "Öppna menyn", "not_found_report": "Den rapporten finns inte (längre).",
            "empty_archive": "Inget arkiverat. Arkivera en rapport från dess meny (⋯) för att dölja den från startsidan."},
@@ -748,12 +760,48 @@ if(u.host!==location.host)return;if(u.pathname==="/"||/^\\/r\\/[a-z0-9-]+\\/?$/.
 parent.postMessage({agentreportsGo:u.pathname},"*")}},true)})();</script>"""
 
 
+_update = {"at": 0, "info": None}
+_update_lock = threading.Lock()
+
+
+def _parse_version(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3]) or (0,)
+
+
+def update_info():
+    """The newest version on GitHub, asked at most every six hours; never blocks the page for long."""
+    if not UPDATE_CHECK or not re.fullmatch(r"[\w.-]+/[\w.-]+", UPDATE_REPO):
+        return None
+    with _update_lock:
+        if time.time() - _update["at"] < 6 * 3600 and _update["info"] is not None:
+            return _update["info"]
+        info = {"current": VERSION, "repo_url": f"https://github.com/{UPDATE_REPO}"}
+        try:
+            req = urllib.request.Request(f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/app/VERSION",
+                                         headers={"User-Agent": f"agentreports/{VERSION}"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                latest = r.read(64).decode().strip()
+            info.update(latest=latest, update=_parse_version(latest) > _parse_version(VERSION))
+            req = urllib.request.Request(f"https://api.github.com/repos/{UPDATE_REPO}/commits/main",
+                                         headers={"User-Agent": f"agentreports/{VERSION}", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                c = json.load(r)
+            info.update(subject=str(c.get("commit", {}).get("message", "")).split("\n")[0][:140],
+                        date=c.get("commit", {}).get("committer", {}).get("date"))
+        except (OSError, ValueError) as e:
+            info.setdefault("update", False)
+            info["error"] = str(e)[:120]
+        _update.update(at=time.time(), info=info)
+        return info
+
+
 def shell(slug=None):
     """The app: reports in a panel on the left; the overview, or one report, on the right."""
     reports = [public(m) for m in store.all()]
     return page("dashboard.html", subtitle=esc(SUBTITLE),
                 data=json_script({"lang": LANG, "words": T, "reports": reports, "open": slug,
-                                  "site": TITLE, "brand_page": bool(AGENT_BRANDING or BRAND_DIR)}))
+                                  "site": TITLE, "brand_page": bool(AGENT_BRANDING or BRAND_DIR),
+                                  "version": VERSION, "update_check": UPDATE_CHECK, "can_update": bool(DEPLOY_HOOK_URL)}))
 
 
 def fmt_time(iso):
@@ -949,6 +997,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/") if path != "/" else self.ours(shell())
         if path == "/brand":
             return self.ours(brand_page())
+        if path == "/api/system/version":
+            info = update_info() or {"current": VERSION}
+            return self.json(200, {**info, "can_update": bool(DEPLOY_HOOK_URL)}, {"Cache-Control": "no-store"})
         if path == "/api/reports":
             return self.json(200, {"reports": [public(m) for m in store.all()]}, {"Cache-Control": "no-store"})
         m = re.match(r"^/r/([a-z0-9-]+)/?$", path)
@@ -1033,6 +1084,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(401, {"error": "sign in"})
         if not same_origin:
             return self.json(403, {"error": "forbidden"})
+        if path == "/api/system/update":
+            if not DEPLOY_HOOK_URL:
+                return self.json(404, {"error": "not configured"})
+            try:
+                req = urllib.request.Request(DEPLOY_HOOK_URL, data=b"", method="POST",
+                                             headers={"User-Agent": f"agentreports/{VERSION}"})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    status = r.status
+            except OSError as e:
+                log(f"browser ({self.ip()}): update via deploy hook failed: {e}")
+                return self.json(502, {"error": "the platform did not accept the deploy"})
+            log(f"browser ({self.ip()}): update requested via the deploy hook ({status})")
+            return self.json(200, {"started": True, "from": VERSION})
         if path == "/api/brand/restore" and AGENT_BRANDING:
             try:
                 meta = brands.restore(int(json.loads(self.body(10_000) or b"{}").get("version", 0)), "browser")

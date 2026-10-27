@@ -85,6 +85,8 @@ Reports link to each other with relative links (`other-report.html`), so a set o
 | `FILES_DIR`, `FILES_ROUTE` | Optional read-only folder served to signed-in readers under `FILES_ROUTE` (default `/files`), e.g. the source documents reports link to. PDFs and images are shown; anything that could run is served as text. |
 | `BRAND_DIR` | Optional folder with your own logo, fonts and colours; see below. |
 | `AGENT_BRANDING` | `on` (default) or `off`: may agents change the look over MCP (see below). |
+| `UPDATE_CHECK` | `on` (default) or `off`: compare the running version with `app/VERSION` on GitHub (`UPDATE_REPO`, default `magnusfroste/agentreports`) every six hours and show people "New version" in the panel. |
+| `DEPLOY_HOOK_URL` | Optional: the platform's deploy trigger (e.g. Easypanel's *Deployment Trigger*). People then get an "Update now" button that calls it and reloads when the new version is up. An app cannot rebuild itself — that would need the Docker socket, i.e. the whole host — but it can ask the platform. Agents cannot press it. |
 | `MAX_REPORT_BYTES` | Default 10 MB. |
 
 ### Your logo, colours and fonts
