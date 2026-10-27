@@ -112,7 +112,7 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/mcp", body, {"Authorization": "Bearer abc"})[0], 401)  # too short, ignored
         self.assertEqual(self.req("/mcp", body, {"Authorization": "Bearer " + "z" * 40})[0], 401)
         tools = [t["name"] for t in self.mcp("tools/list")["tools"]]
-        self.assertEqual(tools, ["publish_report", "report_style", "update_report_details", "list_reports",
+        self.assertEqual(tools, ["publish_report", "report_style", "check_report", "update_report_details", "list_reports",
                                  "read_report", "report_versions", "get_brand", "update_brand", "restore_brand"])
         self.assertFalse(any("delete" in t or "archive" in t for t in tools))
         init = self.mcp("initialize", {"protocolVersion": "2025-03-26"})
@@ -162,7 +162,9 @@ class Server(unittest.TestCase):
         self.assertTrue(h["Content-Security-Policy"].startswith("sandbox"))
         self.assertNotIn("allow-same-origin", h["Content-Security-Policy"])
         code, h, body = self.req("/notes.html", cookie=c)
-        self.assertIn(b"marked.min.js", body)
+        self.assertIn(b'<main class="r-page">', body)  # drawn by the server in the report kit, no CDN
+        self.assertIn(b"/static/report.css", body)
+        self.assertNotIn(b"cdnjs", body)
         self.assertIn("sandbox", h["Content-Security-Policy"])
         self.assertEqual(self.req("/letter", cookie=c)[1]["Location"], "/letter.html")
         self.assertEqual(self.req("/letter.md", cookie=c)[1]["Location"], "/letter.html")
@@ -325,6 +327,48 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/api/system/update", b"{}", h, "POST", cookie=c)[0], 404)  # no deploy hook set
         self.assertEqual(self.req("/api/system/update", b"{}", h, "POST")[0], 401)
         self.assertEqual(self.req("/api/system/update", b"{}", {}, "POST", cookie=c)[0], 403)
+
+    def test_08g_markdown_blocks_checks_and_drafts(self):
+        md = ("# Q3\nWhat it cost.\n\n::kpis\n- 3 752 294 kr | Total | +8 %\n::\n\n"
+              "```chart stacked unit=\"kr\"\nMonth, A, B\n2026-08, 1 000, 2000\n2026-09, 1500, 2500\n```\n\n"
+              "| P | Cost |\n|---|---:|\n| x | 1 |\n\n::sources\nThe ledger.\n::\n")
+        r = self.tool("publish_report", title="Q3", slug="q3", content=md, format="markdown", description="Cost.",
+                      category="Finance")
+        self.assertEqual((r["version"], r["warnings"]), (1, []))
+        c = self.login()
+        body = self.req("/q3.html", cookie=c)[2]
+        for part in (b'class="r-kpis"', b'class="r-kpi-note r-up"', b'class="r-chart" data-type="stacked"',
+                     b'"values": [1000.0, 1500.0]', b'<th class="num">', b'class="r-sources"', b'class="r-eyebrow">Finance'):
+            self.assertIn(part, body)
+        self.assertEqual(self.req("/static/report.js")[0], 200)  # public, a sandboxed report loads it
+        # broken markdown and scripts-instead-of-pages are refused, with the reason
+        for content, fmt in (("::kpis\n- 1 | a\n", "markdown"), ("```chart pie\na,b\n1,2\n```", "markdown"),
+                             ('x = 1\nHTML = """<p>a</p>"""', "html"),
+                             ("<html><body>\nimport os\ndef build():\nOUT = 1\nprint(OUT)\n</body></html>", "html")):
+            r = self.tool("publish_report", title="Bad", slug="bad", content=content, format=fmt)
+            self.assertTrue(r["isError"], content)
+            self.assertIn("Not published", r["content"][0]["text"])
+        self.assertIsNone(self.tool("read_report", slug="bad").get("slug"))
+        # check_report: warnings an agent can act on
+        w = self.tool("check_report", content='<html><style>a{color:#111;b:#222;c:#333;d:#444;e:#555;f:#666;g:#777;h:#888;i:#999}</style>'
+                                              '<nav><a href="other.html">x</a></nav><table></table>'
+                                              '<script>localStorage.x=1</script><div style="width:1400px"></div></html>')
+        text = " ".join(w["warnings"])
+        for word in ("description", "report.css", "colours", "menu", "localStorage", "1400px", "r-table-wrap", "sources"):
+            self.assertIn(word, text)
+        # drafts: not on the start page or in list_reports until published
+        r = self.tool("publish_report", title="Draft", slug="draft-one", content="# Draft\n\n::sources\nx\n::",
+                      format="markdown", description="d", draft=True)
+        self.assertTrue(r["draft"])
+        self.assertNotIn("draft-one", [x["slug"] for x in self.tool("list_reports")["reports"]])
+        self.assertIn("draft-one", [x["slug"] for x in self.tool("list_reports", include_drafts=True)["reports"]])
+        self.assertEqual(self.req("/draft-one.html", cookie=c)[0], 200)  # people can preview it
+        self.assertTrue(self.tool("publish_report", title="Q3", slug="q3", content=md + "x", format="markdown",
+                                  draft=True)["isError"])  # a published report can not become a draft
+        r = self.tool("publish_report", title="Draft", slug="draft-one", content="# Draft\n\n::sources\nx\n::",
+                      format="markdown", draft=False)
+        self.assertFalse(r["draft"])
+        self.assertIn("draft-one", [x["slug"] for x in self.tool("list_reports")["reports"]])
 
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}

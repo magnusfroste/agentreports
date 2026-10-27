@@ -61,9 +61,10 @@ mcp_servers:
 
 | Tool | What it does |
 |---|---|
-| `publish_report` | `title`, `content` (a full HTML page, or markdown with `format: markdown`), `description`, `category`, `tags`, `slug`, `note`, `expected_version`, `requested_by`. Returns the link and version. |
+| `publish_report` | `title`, `content` (markdown with `format: markdown`, or a full HTML page), `description`, `category`, `tags`, `slug`, `note`, `expected_version`, `requested_by`, `draft`. Returns the link, the version and any warnings. |
 | `update_report_details` | Change title, description, category or tags without new content. |
-| `report_style` | How reports should look here: the stylesheet, its classes, a page skeleton. |
+| `report_style` | How reports should look here: markdown blocks and an example, the stylesheet and chart script for HTML, a page skeleton. |
+| `check_report` | The checks `publish_report` runs, without publishing: errors and warnings. |
 | `get_brand`, `update_brand`, `restore_brand` | The site's look: read it, change it as a new version, or go back. |
 | `list_reports` | Reports with their details and links, and the categories in use (so agents reuse them). |
 | `read_report` | A report's content, current or an older `version`, to build on. |
@@ -122,9 +123,48 @@ brand/
 
 Every key is optional. Colours are `#rrggbb` or `#rrggbbaa`. `accent` colours buttons, the selected filter and focus rings; text on it turns dark or light by itself unless `accent_ink` says otherwise; `accent_text` is the accent as text on a light background. `dark` sets the dark-mode palette. A font entry may carry `style` (`italic`) and `unicode_range` for subset files. `radius` (0–24 px) sets how round cards and buttons are. `series` (up to six colours) are the chart and tag colours reports use (`var(--c1)`…). Category colours stay as they are, so cards remain easy to tell apart.
 
+## Reports in markdown
+
+The easiest way for an agent to make a good report is not to write HTML at all: `publish_report(format="markdown")` takes a short markdown file and the server draws it in the site's look. A few blocks cover what reports need:
+
+````markdown
+# Overview — Q3 2026
+What the quarter cost, per month and kind.
+
+::kpis
+- 3 752 294 kr | Total cost | +8 % on Q2
+- 249 | invoices | 12 scanned
+::
+
+::note warn
+252 832 kr is not in the books yet.
+::
+
+```chart stacked title="Cost per month" unit="kr"
+Month, Transport, Storage
+2026-08, 298000, 84000
+2026-09, 412000, 88000
+```
+
+| Project | Cost (kr) |
+|---|---:|
+| SO03427 | 412 000 |
+| **Total** | 1 204 000 |
+
+::sources
+Built from the ledger on 2026-10-27.
+::
+````
+
+Charts are `bar`, `stacked`, `hbar`, `line` and `donut`, from CSV, drawn as SVG by `/static/report.js` in the brand's series colours, with hover values, light and dark. Numeric table columns are right-aligned and a row starting in **bold** is a total. Also `::details Title`, `::grid`, `::card`. Everything is escaped; links may only be http(s), mailto, relative or anchors. A tenth of the text of the HTML page it replaces, so there is little for a model to get wrong.
+
 ## Reports that look like the site
 
-With `REPORT_STYLE=on` (the default) agents are told, in the MCP instructions and by the tool `report_style`, to link `/static/report.css` and build reports from its `r-*` classes: header, page navigation, key figures, notes, tags, filters, tables with sticky headers, bars, legends and a sources footer, for screen, phone, dark mode and A4 print. The stylesheet carries the brand, so reports look like the start page — and follow it when the brand changes, even old ones. `REPORT_STYLE=off` removes the tool, the instruction and the stylesheet; agents then style reports as they like.
+With `REPORT_STYLE=on` (the default) agents are told, in the MCP instructions and by the tool `report_style`, to write markdown where they can, and otherwise to link `/static/report.css` and `/static/report.js` and build from the `r-*` classes: header, key figures, notes, tags, filters, tables with sticky headers, charts (`<div class="r-chart" data-type="bar">` with JSON data), bars, legends and a sources footer, for screen, phone, dark mode and A4 print. The kit carries the brand, so reports look like the start page — and follow it when the brand changes, even old ones. `REPORT_STYLE=off` stops telling agents; the kit itself is always served, since markdown reports are drawn with it.
+
+## Checked before people see it
+
+`publish_report` checks every report and `check_report` does the same without publishing. **Errors stop a publish**: markdown that does not parse (with the line), or an "HTML page" that is really the script meant to write it. **Warnings come back** so the agent can fix them: no description, no `/static/report.css`, colours of its own, a menu or back link of its own (the panel does that), localStorage, external scripts, fixed widths or tables that will scroll sideways on a phone, no sources. `draft: true` publishes a new report as a draft: people can open it, but it is not on the start page or in `list_reports` until it is published with `draft: false`.
 
 ## Agents can change the look, too
 

@@ -120,7 +120,7 @@
 
   const catName = (r) => r.category || W.uncategorized;
   // The switch shows the archive instead of the start page, not both mixed together.
-  const visible = () => reports.filter((r) => state.arch ? r.archived : !r.archived);
+  const visible = () => reports.filter((r) => !r.draft && (state.arch ? r.archived : !r.archived));
   const words = (q) => q.toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (r, ws) => {
     const hay = [r.title, r.description, r.category, r.slug, r.updated_by_text, r.created_by_text, ...(r.tags || [])].join(" ").toLowerCase();
@@ -144,7 +144,7 @@
   };
 
   const renderStats = () => {
-    const live = reports.filter((r) => !r.archived);
+    const live = reports.filter((r) => !r.archived && !r.draft);
     const cats = new Set(live.map(catName));
     const last = live.reduce((m, r) => (r.updated > m ? r.updated : m), "");
     el.stats.innerHTML = live.length
@@ -361,7 +361,8 @@
       <span class="t">${esc(r.title)}</span>${fresh(r.created) || (fresh(r.updated) && r.version > 1) ? '<span class="new"></span>' : ""}</a>`;
   const renderSide = () => {
     const ws = words(el.sq.value.trim());
-    const live = reports.filter((r) => !r.archived && matches(r, ws)).sort(sorters.updated);
+    const live = reports.filter((r) => !r.archived && !r.draft && matches(r, ws)).sort(sorters.updated);
+    const drafts = reports.filter((r) => r.draft && !r.archived && matches(r, ws)).sort(sorters.updated);
     const closed = openCats();
     const parts = [`<a class="side-item home${current ? "" : " active"}" href="/" data-nav><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="t">${esc(W.overview)}</span></a>`];
     const pinned = pins().map(find).filter((r) => r && !r.archived && matches(r, ws));
@@ -374,6 +375,8 @@
       parts.push(`<details class="side-group" data-cat="${esc(name)}"${open ? " open" : ""}><summary class="side-label">
         <span>${esc(name)}</span><span class="n">${rs.length}</span></summary>${rs.map(item).join("")}</details>`);
     }
+    if (drafts.length) parts.push(`<details class="side-group drafts" data-cat="__drafts"${!openCats().includes("__drafts") || drafts.some((r) => r.slug === current) ? " open" : ""}><summary class="side-label">
+        <span>${esc(W.drafts)}</span><span class="n">${drafts.length}</span></summary>${drafts.map(item).join("")}</details>`);
     if (ws.length && !live.length) parts.push(`<p class="side-empty">${esc(W.empty_filtered)}</p>`);
     el.nav.innerHTML = parts.join("");
     paint(el.nav);

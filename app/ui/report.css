@@ -98,6 +98,26 @@ h3 { font-size: calc(17px * var(--heading-scale)); margin: 24px 0 10px; }
 details.r-details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }
 details.r-details summary { cursor: pointer; font-weight: 600; }
 
+/* charts (drawn by /static/report.js) */
+.r-chart-wrap { margin: 16px 0; padding: 16px 18px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.r-chart-title { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.r-chart { width: 100%; min-height: 60px; }
+.r-chart svg { display: block; overflow: visible; }
+.r-chart svg rect, .r-chart svg path, .r-chart svg circle { transition: opacity .15s; }
+.r-chart svg :is(rect, path, circle):hover { opacity: .8; }
+
+/* plain text in a report (markdown reports use these) */
+.r-page p { margin: 10px 0; max-width: 75ch; }
+.r-page ul, .r-page ol { margin: 10px 0; padding-left: 22px; max-width: 75ch; }
+.r-page li { margin: 4px 0; }
+.r-page blockquote { margin: 14px 0; padding: 4px 16px; border-left: 3px solid var(--line-strong); color: var(--muted); }
+.r-page code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2); padding: .1em .35em; border-radius: 5px; }
+.r-page pre { background: var(--surface-2); padding: 14px 16px; border-radius: var(--radius-control); overflow-x: auto; }
+.r-page pre code { background: none; padding: 0; }
+.r-page hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+.r-page a { text-underline-offset: 2px; }
+.r-page h2 { scroll-margin-top: 16px; }
+
 /* sources, at the bottom of every report */
 .r-sources { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 13px; }
 .r-sources p { margin: 4px 0; }

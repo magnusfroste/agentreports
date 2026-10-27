@@ -125,7 +125,7 @@ class Store:
     # --- writing ----------------------------------------------------------------------------
 
     def publish(self, slug, content, by, fmt="html", note=None, expected_version=None, at=None, requested_by=None,
-                **details):
+                draft=None, **details):
         """Add a version. Returns (meta, changed): publishing identical content changes only the details.
 
         by is the agent key's name (proven by the key); requested_by is who the agent says asked for it."""
@@ -152,16 +152,21 @@ class Store:
             if meta and expected_version is not None and int(expected_version) != meta["version"]:
                 raise Conflict(f"'{slug}' is at version {meta['version']}, not {expected_version}: someone published "
                                "in between. Read it again (read_report) and publish on top of that.")
+            if draft and meta and not meta.get("draft"):
+                raise ValueError(f"'{slug}' is already published; a draft is only for a new report. Check content "
+                                 "with check_report before publishing over it.")
             if not meta:
                 if "title" not in details:
                     raise ValueError("title is required for a new report")
                 meta = {"slug": slug, "title": details["title"], "description": "", "category": "", "tags": [],
                         "format": fmt, "version": 0, "created": stamp, "created_by": by,
-                        "created_for": requested_by, "archived": False}
+                        "created_for": requested_by, "archived": False, "draft": bool(draft)}
                 os.makedirs(self._dir(slug), exist_ok=True)
             current = self.content(slug) if meta["version"] else None
             changed = not current or current[2].get("sha256") != sha or current[2].get("format") != fmt
             meta.update(details)
+            if draft is False and meta.get("draft"):
+                meta.update(draft=False, published=stamp, published_by=by)
             if changed:
                 n = meta["version"] + 1
                 self._write(os.path.join(self._dir(slug), f"v{n:04d}{FORMATS[fmt]}"), data)

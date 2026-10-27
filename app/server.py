@@ -50,6 +50,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import brandstore
+import checks
+import mdreport
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
 VERSION = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")).read().strip()
@@ -76,7 +78,6 @@ REPORT_CSP = ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox
               "allow-downloads allow-top-navigation-by-user-activation; frame-ancestors 'self'")
 PAGE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-MARKED = "https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"
 
 RESERVED.update({"brand"})
 RESERVED.add(FILES_ROUTE.strip("/").split("/")[0])
@@ -116,7 +117,7 @@ WORDS = {
            "brand_changed": "Changed", "brand_current_base": "the base look", "brand_off": "Agents may not change the look on this site (AGENT_BRANDING=off).",
            "update_available": "New version", "update_now": "Update now", "update_started": "Updating — the page reloads when it is back",
            "update_confirm": "Update the site now? It is away for a minute while the platform deploys.", "whats_new": "What is new",
-           "overview": "Overview", "pinned": "Pinned", "pin": "Pin", "unpin": "Unpin", "open_tab": "Open in a new tab",
+           "drafts": "Drafts", "overview": "Overview", "pinned": "Pinned", "pin": "Pin", "unpin": "Unpin", "open_tab": "Open in a new tab",
            "panel": "Panel", "menu_open": "Open the menu", "not_found_report": "That report does not exist (any more).",
            "empty_archive": "Nothing archived. Archive a report from its menu (⋯) to hide it from the start page."},
     "sv": {"search": "Sök rapporter", "sort_updated": "Senast uppdaterad", "sort_created": "Nyast",
@@ -144,7 +145,7 @@ WORDS = {
            "brand_changed": "Ändrat", "brand_current_base": "grundprofilen", "brand_off": "Agenter får inte ändra profilen på den här sidan (AGENT_BRANDING=off).",
            "update_available": "Ny version", "update_now": "Uppdatera nu", "update_started": "Uppdaterar — sidan laddas om när den är tillbaka",
            "update_confirm": "Uppdatera sidan nu? Den är borta en minut medan plattformen deployar.", "whats_new": "Vad som är nytt",
-           "overview": "Översikt", "pinned": "Fästa", "pin": "Fäst", "unpin": "Lossa", "open_tab": "Öppna i ny flik",
+           "drafts": "Utkast", "overview": "Översikt", "pinned": "Fästa", "pin": "Fäst", "unpin": "Lossa", "open_tab": "Öppna i ny flik",
            "panel": "Panel", "menu_open": "Öppna menyn", "not_found_report": "Den rapporten finns inte (längre).",
            "empty_archive": "Inget arkiverat. Arkivera en rapport från dess meny (⋯) för att dölja den från startsidan."},
 }
@@ -247,7 +248,7 @@ def public(meta):
             "updated_for": meta.get("updated_for"),
             "created_by_text": who_text(meta.get("created_by"), meta.get("created_for")),
             "updated_by_text": who_text(meta.get("updated_by"), meta.get("updated_for")),
-            "archived": bool(meta.get("archived")), "url": url_of(meta["slug"])}
+            "archived": bool(meta.get("archived")), "draft": bool(meta.get("draft")), "url": url_of(meta["slug"])}
 
 
 # --- MCP tools ------------------------------------------------------------------------------
@@ -256,15 +257,32 @@ def t_publish(a, who):
     title = a.get("title")
     slug = a.get("slug") or slugify(title or "")
     existed = store.get(slug)
-    meta, changed = store.publish(slug, a.get("content") or "", who, fmt=a.get("format") or "html",
+    fmt = a.get("format") or "html"
+    description = a.get("description") if a.get("description") is not None else (existed or {}).get("description")
+    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": description}, REPORT_STYLE)
+    if errors:
+        raise ValueError("Not published. " + " ".join(errors))
+    draft = a.get("draft")
+    meta, changed = store.publish(slug, a.get("content") or "", who, fmt=fmt,
                                   note=a.get("note"), expected_version=a.get("expected_version"),
-                                  requested_by=a.get("requested_by"),
+                                  requested_by=a.get("requested_by"), draft=None if draft is None else bool(draft),
                                   title=title, description=a.get("description"), category=a.get("category"),
                                   tags=a.get("tags"))
-    log(f"{who}: published {slug} v{meta['version']}{'' if changed else ' (same content)'}")
-    return {**public(meta), "new_report": not existed, "new_version": changed,
-            "note": "The start page lists it automatically. Earlier versions are kept." if changed else
-                    "Content identical to the current version: no new version, details updated."}
+    log(f"{who}: published {slug} v{meta['version']}{' (draft)' if meta.get('draft') else ''}"
+        f"{'' if changed else ' (same content)'}{f', {len(warnings)} warnings' if warnings else ''}")
+    note = ("A draft: people can open it at the url, but it is not on the start page or in list_reports. Publish "
+            "again with draft=false when it is right." if meta.get("draft") else
+            "The start page lists it automatically. Earlier versions are kept." if changed else
+            "Content identical to the current version: no new version, details updated.")
+    return {**public(meta), "new_report": not existed, "new_version": changed, "warnings": warnings, "note": note}
+
+
+def t_check(a):
+    fmt = a.get("format") or "html"
+    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": a.get("description")}, REPORT_STYLE)
+    return {"ok": not errors, "errors": errors, "warnings": warnings,
+            "note": "Errors stop publish_report; warnings do not, but each is worth fixing." if errors or warnings
+                    else "Nothing to fix."}
 
 
 def t_details(a, who):
@@ -280,6 +298,7 @@ def t_list(a):
     q = (a.get("query") or "").lower()
     rows = [m for m in store.all()
             if (a.get("include_archived") or not m.get("archived"))
+            and (a.get("include_drafts") or not m.get("draft"))
             and (not a.get("category") or (m.get("category") or "").lower() == a["category"].lower())
             and (not q or q in " ".join([m["slug"], m["title"], m.get("description", ""), m.get("category", "")]
                                         + m.get("tags", [])).lower())]
@@ -310,6 +329,42 @@ def t_versions(a):
             "versions": [{**v, "url": url_of(meta["slug"], v["version"])} for v in store.versions(meta["slug"])]}
 
 
+MARKDOWN_EXAMPLE = """# Overview — Q3 2026
+What the quarter cost, per month and kind, and how much is tied to projects.
+
+::kpis
+- 3 752 294 kr | Total cost | +8 % on Q2
+- 87,8 % | tied to a project
+- 249 | invoices | 12 scanned
+::
+
+::note warn
+252 832 kr is not in the books yet — see the reconciliation.
+::
+
+## Per month
+```chart stacked title="Cost per month" unit="kr"
+Month, Transport, Storage, Assembly
+2026-07, 312000, 81000, 40000
+2026-08, 298000, 84000, 52000
+2026-09, 412000, 88000, 61000
+```
+
+## Largest projects
+| Project | Customer | Cost (kr) |
+|---|---|---:|
+| SO03427 | Example AB | 412 000 |
+| **Total** | | 1 204 000 |
+
+::details How the numbers are counted
+Invoices dated in the quarter; a credit note is subtracted from its invoice.
+::
+
+::sources
+Built from the invoice service and the ledger on 2026-10-27. Not readable: 12 scanned invoices.
+::
+"""
+
 REPORT_SKELETON = """<!doctype html>
 <html lang="{lang}">
 <head>
@@ -317,6 +372,7 @@ REPORT_SKELETON = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Title of the report</title>
 <link rel="stylesheet" href="/static/report.css">
+<script src="/static/report.js" defer></script>
 <link rel="icon" href="/favicon.ico">
 </head>
 <body>
@@ -365,7 +421,27 @@ STYLE_CLASSES = {
 
 
 def t_style(_):
-    return {"stylesheet": '<link rel="stylesheet" href="/static/report.css">',
+    return {"recommended": "markdown — publish_report(format=\"markdown\"): far less to write than HTML, checked "
+                           "on publish, and always drawn in the site's look with charts. Use HTML only for what "
+                           "markdown cannot do (e.g. an interactive filter).",
+            "markdown": {
+                "example": MARKDOWN_EXAMPLE,
+                "blocks": {"# Title": "the report's heading; the paragraph right after it is the lead",
+                           "::kpis … ::": "key figures, one per line: - value | label | note (a note starting "
+                                          "with + or - is coloured as up/down)",
+                           "::note warn|bad|good … ::": "a highlighted remark",
+                           "```chart bar|stacked|hbar|line|donut title=\"…\" unit=\"…\"": "CSV: a header row "
+                           "(label, series…) then one row per label; numbers may use spaces and a decimal comma",
+                           "| table |": "markdown tables; numeric columns are right-aligned, a row whose first cell "
+                                        "is **bold** is a total",
+                           "::details Title … ::": "a section the reader can fold out",
+                           "::grid … ::, ::card … ::": "panels side by side",
+                           "::sources … ::": "the footer: what the report is built on and when (always)"},
+                "links": "relative links to other reports ('other-slug.html') open them inside the site"},
+            "stylesheet": '<link rel="stylesheet" href="/static/report.css"><script src="/static/report.js" defer></script>',
+            "charts_in_html": '<div class="r-chart" data-type="bar|stacked|hbar|line|donut"><script type="application/json">'
+                              '{"labels": ["Jul", "Aug"], "unit": "kr", "series": [{"name": "Transport", "values": [312000, 298000]}]}'
+                              '</script></div> — drawn by /static/report.js in the site\'s colours, with hover values',
             "how": "Link the stylesheet in <head> and build the page from the classes below. Do not set your own "
                    "colours, fonts or background: the site's look (and dark mode) comes from the stylesheet, so a "
                    "report looks like the start page and changes with it. Inline CSS only for layout the kit lacks. "
@@ -430,7 +506,8 @@ S = {"type": "string"}
 TOOLS = [
     ("publish_report", lambda a, w: t_publish(a, w),
      "Publish a report, or a new version of one, for people to read in the browser. Give a title, the "
-     "content (a complete HTML page, or markdown with format=markdown), a one-or-two sentence description "
+     "content — preferably markdown (format=markdown, see report_style: key figures, notes, charts and tables in "
+     "a few lines, always in the site's look) or a complete HTML page — a one-or-two sentence description "
      "and a category: the start page shows them as a card, so you never write an index page yourself. "
      "Publishing the same slug again adds a version; earlier ones are kept and a person can restore them. "
      "Reports cannot be deleted or hidden by agents. Link between reports with relative links "
@@ -446,15 +523,22 @@ TOOLS = [
       "note": {**S, "description": "What changed in this version"},
       "requested_by": {**S, "description": "The person who asked for this report, when several people share "
                                           "this agent; shown as '<person> via <agent>'"},
-      "expected_version": {"type": "integer", "description": "Refuse if the report is no longer at this version"}},
+      "expected_version": {"type": "integer", "description": "Refuse if the report is no longer at this version"},
+      "draft": {"type": "boolean", "description": "true: a new report as a draft, not on the start page yet; "
+                                                  "false: make a draft public"}},
      ["title", "content"]),
+    ("check_report", lambda a, w: t_check(a),
+     "Check a report before publishing it: errors that would stop it (a script instead of a page, markdown that "
+     "does not parse) and warnings (no description, own colours, own menu, too wide for a phone, no sources). "
+     "publish_report runs the same checks and returns the warnings.",
+     {"content": S, "format": {**S, "enum": list(FORMATS)}, "description": S}, ["content"]),
     ("update_report_details", lambda a, w: t_details(a, w),
      "Change the title, description, category or tags of a report without publishing new content.",
      {"slug": S, "title": S, "description": S, "category": S, "tags": {"type": "array", "items": S}}, ["slug"]),
     ("list_reports", lambda a, w: t_list(a),
      "The published reports with title, description, category, version and link, and the categories in use.",
      {"category": S, "query": {**S, "description": "Words in slug, title, description, category or tags"},
-      "include_archived": {"type": "boolean"}}, []),
+      "include_archived": {"type": "boolean"}, "include_drafts": {"type": "boolean"}}, []),
     ("read_report", lambda a, w: t_read(a),
      "Read a report's content (the current version, or an older one), e.g. to build on it.",
      {"slug": S, "version": {"type": "integer"}}, ["slug"]),
@@ -505,9 +589,11 @@ def rpc(msg, who):
                    "instructions": f"{TITLE}: publish reports for people with publish_report. The start page is "
                                    "generated from title, description and category. Nothing you publish replaces "
                                    "history: each publish is a version."
-                                   + (" Reports should look like the site: link /static/report.css and use its r-* "
-                                      "classes, no colours or fonts of your own; report_style has the details."
-                                      if REPORT_STYLE else "")})
+                                   + (" Write reports in markdown (format=markdown) where you can: key figures, notes, "
+                                      "charts and tables in a few lines, drawn in the site's look. For HTML, link "
+                                      "/static/report.css and /static/report.js and use the r-* classes, no colours or "
+                                      "fonts of your own. report_style has the details; check_report finds problems "
+                                      "first." if REPORT_STYLE else "")})
     if method == "ping":
         return ok({})
     if method == "tools/list":
@@ -874,13 +960,13 @@ def brand_page():
 
 
 def markdown_page(meta, data):
-    return (f'<!doctype html><html lang="{LANG}"><head><meta charset="utf-8">'
-            f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(meta["title"])}</title>'
-            f'<style>{ASSETS["markdown.css"].decode()}</style></head><body><main id="doc"></main>'
-            f'<script type="application/json" id="md">{json_script(data.decode("utf-8", "replace"))}</script>'
-            f'<script src="{MARKED}"></script>'
-            '<script>document.getElementById("doc").innerHTML=marked.parse(JSON.parse('
-            'document.getElementById("md").textContent))</script></body></html>').encode()
+    text = data.decode("utf-8", "replace")
+    try:
+        return mdreport.render(text, meta["title"], meta.get("category") or "", LANG).encode()
+    except mdreport.MarkdownError as e:  # stored before it was checked: show it as text rather than fail
+        return (f'<!doctype html><html lang="{LANG}"><head><meta charset="utf-8"><title>{esc(meta["title"])}</title>'
+                f'<link rel="stylesheet" href="/static/report.css"></head><body><main class="r-page">'
+                f'<div class="r-note bad">{esc(str(e))}</div><pre>{esc(text)}</pre></main></body></html>').encode()
 
 
 # --- http -----------------------------------------------------------------------------------
@@ -977,10 +1063,11 @@ class Handler(BaseHTTPRequestHandler):
             # Reports run sandboxed (an opaque origin), and fonts are always fetched with CORS.
             return self.send(200, b["fonts"][path[13:]], "font/woff2" if path.endswith("2") else "font/woff",
                              {"Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*"})
-        if path == "/static/report.css":
-            if not REPORT_STYLE:
-                return self.send(404, b"", "text/plain")
+        if path == "/static/report.css":  # always served: markdown reports are drawn with it
             return self.send(200, b["report_css"], "text/css; charset=utf-8",
+                             {"Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*"})
+        if path == "/static/report.js":
+            return self.send(200, ASSETS["report.js"], "text/javascript; charset=utf-8",
                              {"Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*"})
         if path == "/mcp":
             return self.send(405, b"", headers={"Allow": "POST"})
