@@ -299,6 +299,21 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/logo.png")[0], 303)  # the agent's file is gone from the live site
         self.assertEqual([h["version"] for h in self.tool("get_brand")["history"]], [4, 3, 2, 1])
 
+    def test_08e_keep_alive_after_a_post_with_a_body(self):
+        # A browser reuses the connection: an archive POST with "{}" must not leak into the next request.
+        import http.client
+        c = self.login()
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        for path in ("/api/reports/notes/archive", "/api/reports/notes/unarchive"):
+            conn.request("POST", path, body=b"{}", headers={"Cookie": c, "X-Requested-With": "agentreports",
+                                                            "Content-Type": "application/json"})
+            r = conn.getresponse(); r.read()
+            self.assertEqual(r.status, 200, path)
+            conn.request("GET", "/health")
+            r = conn.getresponse(); r.read()
+            self.assertEqual(r.status, 200)
+        conn.close()
+
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}
         codes = [self.req("/login", b"password=nope", h)[0] for _ in range(10)]

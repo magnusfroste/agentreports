@@ -47,7 +47,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import brandstore
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -888,10 +888,17 @@ class Handler(BaseHTTPRequestHandler):
         return f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
 
     def body(self, limit):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > limit:
+        """The request body, read once. Connections are reused (HTTP/1.1): a body left unread would be taken
+        for the start of the next request ("{}GET")."""
+        if getattr(self, "_body", None) is None:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 20 * 1024 * 1024:
+                self.close_connection = True
+                raise ValueError("too large")
+            self._body = self.rfile.read(n)
+        if len(self._body) > limit:
             raise ValueError("too large")
-        return self.rfile.read(n)
+        return self._body
 
     def not_found(self):
         self.ours(page("message.html", title=esc(T["not_found"]), text=esc(T["not_found_text"])), 404)
@@ -1007,6 +1014,11 @@ class Handler(BaseHTTPRequestHandler):
     # --- POST ---
 
     def do_POST(self):
+        self._body = None
+        try:
+            self.body(20 * 1024 * 1024)  # always consume it, whatever the route does with it
+        except ValueError:
+            return self.json(413, {"error": "too large"})
         path = self.path.partition("?")[0]
         if path == "/mcp":
             return self.mcp()
