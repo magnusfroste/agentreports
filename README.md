@@ -23,6 +23,7 @@ The start page used to be something an agent wrote, and an agent could rewrite i
 | publish a report, or a new version of one | read every report and every version |
 | change a report's title, description, category, tags | archive a report (hide it from the start page) and bring it back |
 | list and read reports and their versions | restore an old version |
+| — | rename a report: title, description, category (see below) |
 | — | — nobody deletes over the web; a report is a folder on disk |
 
 - **The start page is generated** from each report's title, description and category. No agent writes it.
@@ -34,7 +35,9 @@ The start page used to be something an agent wrote, and an agent could rewrite i
 
 ## The app
 
-A panel on the left lists the reports by category, newest first, with search and the reports you pinned on top; the archive, the look and the theme switch (system, light, dark) sit at its foot. On the right is the overview — cards or a list, filter by category, search (`/` to focus), sort by updated, newest, title or category — or one report. Click a report and it opens next to the panel, so switching between them is one click; the address becomes `/r/<slug>`, which is the link to share. A bar above the report pins it, opens it bare in a new tab (`/<slug>.html`, also for printing), shows its versions and copies its link. On a phone the panel slides in from the left.
+A panel on the left lists the reports by category, newest first, with search and the reports you pinned on top; the archive and the look sit at its foot, the theme switch (system, light, dark) top right. On the right is the overview — cards or a list, filter by category, search (`/` to focus), sort by updated, newest, title or category — or one report. Click a report and it opens next to the panel, so switching between them is one click; the address becomes `/r/<slug>`, which is the link to share. A bar above the report pins it, opens it bare in a new tab (`/<slug>.html`, also for printing), shows its versions and copies its link. On a phone the panel slides in from the left.
+
+**Renaming.** A report's slug is its lasting id: agents publish new versions to the same slug, and the link stays. Under a report's details (ⓘ) a person can change its title, description and category. What a person sets there is kept: an agent's next version keeps it, and its result says so (also when the report's own heading still has the old name), and `update_report_details` refuses to change it. "Let agents set them again" lifts that.
 
 A report shown in the app tells the app which one it is, so a link from one report to another, or back to the start page, moves the app rather than nesting the site inside the frame; and it follows the theme picked in the panel (in Chromium-based browsers; others follow the system setting).
 
@@ -64,7 +67,7 @@ mcp_servers:
 | Tool | What it does |
 |---|---|
 | `publish_report` | `title`, `content` (markdown with `format: markdown`, or a full HTML page), `description`, `category`, `tags`, `slug`, `note`, `expected_version`, `requested_by`, `draft`. Returns the link, the version and any warnings. |
-| `update_report_details` | Change title, description, category or tags without new content. |
+| `update_report_details` | Change title, description, category or tags without new content (not those a person set). |
 | `report_style` | How reports should look here: markdown blocks and an example, the stylesheet and chart script for HTML, a page skeleton. |
 | `check_report` | The checks `publish_report` runs, without publishing: errors and warnings. |
 | `get_brand`, `update_brand`, `restore_brand` | The site's look: read it, change it as a new version, or go back. |
@@ -208,7 +211,7 @@ docker compose exec reports python server.py import /import --by hermes --detail
 ## Storage
 
 ```
-/data/reports/<slug>/meta.json    title, description, category, tags, current version, archived
+/data/reports/<slug>/meta.json    title, description, category, tags, current version, archived, locked
 /data/reports/<slug>/v0001.html   content of each version (.md for markdown)
 /data/reports/<slug>/v0001.json   who, when, note, size, checksum
 ```

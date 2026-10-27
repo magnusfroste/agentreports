@@ -1,7 +1,7 @@
 """Reports on disk. No database: a report is a folder, and every publish adds a version.
 
 DATA_DIR/reports/<slug>/
-  meta.json        title, description, category, tags, current version, who and when, archived
+  meta.json        title, description, category, tags, current version, who and when, archived, locked (details a person set in the browser)
   v0001.html       the content of version 1 (.md for markdown)
   v0001.json       who published it, when, the note, size and checksum
 
@@ -23,6 +23,8 @@ RESERVED = {"index", "api", "mcp", "login", "logout", "health", "r", "static", "
             "favicon", "apple-touch-icon", "robots", "assets"}
 FORMATS = {"html": ".html", "markdown": ".md"}
 DETAILS = ("title", "description", "category", "tags")
+# What a person can set in the browser; once set there, an agent's new version keeps it (see locked in meta.json).
+LOCKABLE = ("title", "description", "category")
 ATTACHMENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,60}\.(csv|json)$")
 MAX_ATTACHMENT, MAX_ATTACHMENTS = 5 * 1024 * 1024, 10
 MAX_BYTES = int(os.environ.get("MAX_REPORT_BYTES", str(10 * 1024 * 1024)))
@@ -200,6 +202,11 @@ class Store:
                                                for n, b in sorted(files.items()))).hexdigest() if files else None
             changed = (not current or current[2].get("sha256") != sha or current[2].get("format") != fmt
                        or current[2].get("data_sha256") != data_sha)
+            # Details a person set in the browser stay as they are; the caller tells the agent (meta["kept"]).
+            locked = meta.get("locked") or {}
+            kept = {k: meta[k] for k in list(details) if k in locked and details[k] != meta.get(k)}
+            for k in kept:
+                details.pop(k)
             meta.update(details)
             if draft is False and meta.get("draft"):
                 meta.update(draft=False, published=stamp, published_by=by)
@@ -222,9 +229,11 @@ class Store:
             meta.setdefault("updated", stamp)
             meta.setdefault("updated_by", by)
             self._write_json(os.path.join(self._dir(slug), "meta.json"), meta)
-            return meta, changed
+            return ({**meta, "kept": kept} if kept else meta), changed
 
-    def update_details(self, slug, by, **details):
+    def update_details(self, slug, by, person=False, **details):
+        """Change title, description, category or tags. person=True (the browser) also locks what it sets,
+        so an agent cannot change it back; an agent changing a locked field gets a ValueError."""
         details = clean_details(**{k: v for k, v in details.items() if k in DETAILS})
         if not details:
             raise ValueError("nothing to change: give title, description, category or tags")
@@ -232,7 +241,32 @@ class Store:
             meta = self.get(slug)
             if not meta:
                 raise KeyError(slug)
-            meta.update(details, details_updated=now(), details_updated_by=by)
+            locked = dict(meta.get("locked") or {})
+            if person:
+                stamp = now()
+                for k in details:
+                    if k in LOCKABLE:
+                        locked[k] = {"by": by, "at": stamp}
+            else:
+                refused = [k for k in details if k in locked and details[k] != meta.get(k)]
+                if refused:
+                    raise ValueError(f"{', '.join(refused)} of '{slug}' was set by a person in the browser and is "
+                                     f"kept: {'; '.join(repr(meta[k]) for k in refused)}. Ask them to change or "
+                                     "unlock it there.")
+            meta.update(details, locked=locked, details_updated=now(), details_updated_by=by)
+            if not locked:
+                meta.pop("locked")
+            self._write_json(os.path.join(self._dir(slug), "meta.json"), meta)
+            return meta
+
+    def unlock(self, slug, by):
+        """Let agents set the title, description and category again."""
+        with self.lock:
+            meta = self.get(slug)
+            if not meta:
+                raise KeyError(slug)
+            meta.pop("locked", None)
+            meta.update(details_updated=now(), details_updated_by=by)
             self._write_json(os.path.join(self._dir(slug), "meta.json"), meta)
             return meta
 

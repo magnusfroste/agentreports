@@ -88,14 +88,33 @@
       const b = e.target.closest("[data-action]");
       if (!b) return;
       const { action, slug, version } = b.dataset;
+      const form = $("#edit");
+      if (action === "edit" || action === "edit-cancel") {
+        form.hidden = action === "edit-cancel" || !form.hidden;
+        $("[data-action=edit]").setAttribute("aria-expanded", String(!form.hidden));
+        if (!form.hidden) form.elements.title.focus();
+        return;
+      }
       try {
         if (action === "copy") return copyLink(slug);
+        if (action === "unlock" && !confirm(W.unlock_confirm)) return;
         if (action === "archive" && !confirm(W.archive_confirm)) return;
         if (action === "restore" && !confirm(W.restore_confirm)) return;
         b.disabled = true;
         await act(slug, action, version ? { version: +version } : null);
         location.reload();
       } catch { b.disabled = false; toast(W.error); }
+    });
+    if (location.hash === "#edit") $("[data-action=edit]").click();
+    $("#edit").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target, save = f.querySelector("[type=submit]");
+      save.disabled = true;
+      try {
+        await act(f.dataset.slug, "details", { title: f.elements.title.value, description: f.elements.description.value,
+          category: f.elements.category.value });
+        location.reload();
+      } catch { save.disabled = false; toast(W.error); }
     });
     return;
   }
@@ -314,6 +333,7 @@
       menu.innerHTML = `<a role="menuitem" href="/r/${esc(r.slug)}" data-open="${esc(r.slug)}">${esc(W.open)}</a>
         <a role="menuitem" href="/${esc(r.slug)}.html" target="_blank" rel="noopener">${esc(W.open_tab)}</a>
         <a role="menuitem" href="/r/${esc(r.slug)}/info">${esc(W.details)}</a>
+        <a role="menuitem" href="/r/${esc(r.slug)}/info#edit">${esc(W.edit_details)}</a>
         <button role="menuitem" type="button" data-do="pin">${esc(isPinned(r.slug) ? W.unpin : W.pin)}</button>
         <button role="menuitem" type="button" data-do="copy">${esc(W.copy_link)}</button>
         <button role="menuitem" type="button" data-do="${r.archived ? "unarchive" : "archive"}">${esc(r.archived ? W.unarchive : W.archive)}</button>`;

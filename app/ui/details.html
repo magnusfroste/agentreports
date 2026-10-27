@@ -30,8 +30,22 @@
       <a class="btn primary" href="/r/{{slug}}">{{t.open}}</a>
       <button class="btn" data-action="copy" data-slug="{{slug}}">{{t.copy_link}}</button>
       <button class="btn ghost" data-action="{{archive_action}}" data-slug="{{slug}}">{{archive_label}}</button>
+      <button class="btn ghost" data-action="edit" aria-expanded="false" aria-controls="edit">{{t.edit_details}}</button>
     </div>
+    {{locked_note}}
   </section>
+
+  <form class="edit-form" id="edit" data-slug="{{slug}}" hidden>
+    <label><span>{{t.f_title}}</span><input name="title" value="{{title}}" maxlength="200" required></label>
+    <label><span>{{t.f_description}}</span><textarea name="description" rows="3" maxlength="600">{{description}}</textarea></label>
+    <label><span>{{t.f_category}}</span><input name="category" value="{{category_raw}}" maxlength="60" list="cats"></label>
+    <datalist id="cats">{{category_options}}</datalist>
+    <p class="hint">{{t.edit_hint}}</p>
+    <div class="detail-actions">
+      <button class="btn primary" type="submit">{{t.save}}</button>
+      <button class="btn ghost" type="button" data-action="edit-cancel">{{t.cancel}}</button>
+    </div>
+  </form>
 
   <dl class="facts">
     <div><dt>{{t.created}}</dt><dd>{{created}} · {{created_by}}</dd></div>

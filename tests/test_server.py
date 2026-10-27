@@ -223,6 +223,35 @@ class Server(unittest.TestCase):
         self.assertIn("Operations", cats)
         self.assertTrue(self.tool("update_report_details", slug="missing", title="x")["isError"])
 
+    def test_08i_people_rename_and_agents_keep_it(self):
+        c = self.login()
+        h = {"X-Requested-With": "agentreports"}
+        self.tool("publish_report", slug="renamed", title="Ledger 2026", format="markdown",
+                  content="# Ledger 2026\n\nText.", description="All invoices", category="Finance")
+        url = "/api/reports/renamed/details"
+        self.assertEqual(self.req(url, b'{"title": "x"}', h, "POST")[0], 401)
+        self.assertEqual(self.req(url, b'{"title": "   "}', h, "POST", cookie=c)[0], 400)
+        code, _, body = self.req(url, json.dumps({"title": "Invoice ledger", "category": "Transport"}).encode(),
+                                 h, "POST", cookie=c)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["set_by_person"], ["category", "title"])
+        # a new version from the agent keeps the person's title and category, and says so
+        r = self.tool("publish_report", slug="renamed", title="Ledger 2026", format="markdown",
+                      content="# Ledger 2026\n\nNew text.", description="All invoices, updated", category="Finance")
+        self.assertEqual((r["title"], r["category"], r["description"], r["version"]),
+                         ("Invoice ledger", "Transport", "All invoices, updated", 2))
+        self.assertTrue(any("Invoice ledger" in w for w in r["warnings"]), r["warnings"])
+        # the agent's own heading still differs: a reminder, without anything kept back
+        r = self.tool("publish_report", slug="renamed", title="Invoice ledger", format="markdown",
+                      content="# Ledger 2026\n\nNewer text.")
+        self.assertTrue(any("heading" in w for w in r["warnings"]), r["warnings"])
+        self.assertTrue(self.tool("update_report_details", slug="renamed", title="Ledger")["isError"])
+        self.assertEqual(self.tool("update_report_details", slug="renamed", description="Short")["description"], "Short")
+        self.assertIn(b"Invoice ledger", self.req("/r/renamed/info", cookie=c)[2])
+        # unlocked, agents name it again
+        self.assertEqual(self.req("/api/reports/renamed/unlock", b"{}", h, "POST", cookie=c)[0], 200)
+        self.assertEqual(self.tool("update_report_details", slug="renamed", title="Ledger")["title"], "Ledger")
+
     def test_08a_who(self):
         r = self.tool("publish_report", slug="requested", title="Requested", content="<p>1</p>", requested_by="Sam  Berg")
         self.assertEqual((r["created_by"], r["created_for"], r["created_by_text"]), ("hermes", "Sam Berg", "Sam Berg via Hermes"))

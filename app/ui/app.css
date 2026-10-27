@@ -413,6 +413,15 @@ mark { background: color-mix(in srgb, var(--amber) 35%, transparent); color: inh
 .tags:empty { display: none; }
 .tag { font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 2px 8px; }
 .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+.locked-note { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent-text); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.edit-form { display: grid; gap: 14px; margin: 18px 0 0; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.edit-form[hidden] { display: none; }
+.edit-form label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.edit-form input, .edit-form textarea { font: inherit; font-size: 15px; font-weight: 400; color: var(--text); background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--radius-control); padding: 9px 12px; width: 100%; }
+.edit-form textarea { resize: vertical; }
+.edit-form .hint { margin: 0; font-size: 13px; color: var(--faint); }
+.edit-form .detail-actions { margin-top: 0; }
 .archived-only { display: none; margin-left: 6px; }
 .is-archived .archived-only { display: inline-flex; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; margin: 26px 0 0; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }

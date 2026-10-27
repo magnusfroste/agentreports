@@ -52,7 +52,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import brandstore
 import checks
 import mdreport
-from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
+from store import FORMATS, LOCKABLE, RESERVED, SLUG, Conflict, Store, slugify
 
 VERSION = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")).read().strip()
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
@@ -98,6 +98,10 @@ WORDS = {
            "empty_filtered": "Nothing matches.", "new": "New", "updated": "Updated", "archived": "Archived",
            "archive": "Archive", "unarchive": "Restore to start page",
            "archive_confirm": "Hide this report from the start page? It stays available, with all versions.",
+           "edit_details": "Rename", "f_title": "Title", "f_description": "Description", "f_category": "Category",
+           "save": "Save", "cancel": "Cancel", "unlock": "Let agents set them again",
+           "edit_hint": "The link stays the same. Agents keep publishing to this report, and new versions keep what you set here.",
+           "locked_note": "Set here: {fields}. Agents' new versions keep it.", "unlock_confirm": "Let agents change the title, description and category again?",
            "archived_toast": "Archived", "undo": "Undo", "copy_link": "Copy link", "copied": "Link copied",
            "details": "Versions & details", "open": "Open", "reports": "reports", "report": "report",
            "categories": "categories", "category": "category", "last_updated": "last updated", "by": "by",
@@ -126,6 +130,10 @@ WORDS = {
            "empty_filtered": "Inget matchar.", "new": "Ny", "updated": "Uppdaterad", "archived": "Arkiverad",
            "archive": "Arkivera", "unarchive": "Tillbaka till startsidan",
            "archive_confirm": "Dölja rapporten från startsidan? Den finns kvar, med alla versioner.",
+           "edit_details": "Byt namn", "f_title": "Titel", "f_description": "Beskrivning", "f_category": "Kategori",
+           "save": "Spara", "cancel": "Avbryt", "unlock": "Låt agenterna styra igen",
+           "edit_hint": "Länken är densamma. Agenterna publicerar vidare till rapporten, och nya versioner behåller det du sätter här.",
+           "locked_note": "Satt här: {fields}. Agenternas nya versioner behåller det.", "unlock_confirm": "Låta agenterna ändra titel, beskrivning och kategori igen?",
            "archived_toast": "Arkiverad", "undo": "Ångra", "copy_link": "Kopiera länk", "copied": "Länken kopierad",
            "details": "Versioner och detaljer", "open": "Öppna", "reports": "rapporter", "report": "rapport",
            "categories": "kategorier", "category": "kategori", "last_updated": "senast uppdaterad", "by": "av",
@@ -248,7 +256,8 @@ def public(meta):
             "updated_for": meta.get("updated_for"),
             "created_by_text": who_text(meta.get("created_by"), meta.get("created_for")),
             "updated_by_text": who_text(meta.get("updated_by"), meta.get("updated_for")),
-            "archived": bool(meta.get("archived")), "draft": bool(meta.get("draft")), "url": url_of(meta["slug"])}
+            "archived": bool(meta.get("archived")), "draft": bool(meta.get("draft")),
+            "set_by_person": sorted(meta.get("locked") or {}), "url": url_of(meta["slug"])}
 
 
 # --- MCP tools ------------------------------------------------------------------------------
@@ -276,11 +285,28 @@ def t_publish(a, who):
                                   tags=a.get("tags"))
     log(f"{who}: published {slug} v{meta['version']}{' (draft)' if meta.get('draft') else ''}"
         f"{'' if changed else ' (same content)'}{f', {len(warnings)} warnings' if warnings else ''}")
+    kept = meta.pop("kept", {})
+    if kept:
+        warnings.append("Kept as a person set it in the browser, not what you sent: " + "; ".join(
+            f"{k} {v!r}" for k, v in kept.items()) + ". Use these from now on" + (
+            ", also as the report's own heading (# line)." if "title" in kept else "."))
+    elif "title" in (meta.get("locked") or {}):
+        heading = heading_of(a.get("content") or "", fmt)
+        if heading and heading != meta["title"]:
+            warnings.append(f"A person named this report {meta['title']!r} in the browser; its heading still says "
+                            f"{heading!r}. Use the same name in the next version.")
     note = ("A draft: people can open it at the url, but it is not on the start page or in list_reports. Publish "
             "again with draft=false when it is right." if meta.get("draft") else
             "The start page lists it automatically. Earlier versions are kept." if changed else
             "Content identical to the current version: no new version, details updated.")
     return {**public(meta), "new_report": not existed, "new_version": changed, "warnings": warnings, "note": note}
+
+
+def heading_of(content, fmt):
+    """The report's own first heading: the markdown '# ' line or the first <h1>."""
+    m = (re.search(r"(?m)^# +(.+?)\s*$", content) if fmt == "markdown"
+         else re.search(r"(?is)<h1\b[^>]*>(.*?)</h1>", content))
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", "", m.group(1))).split()) if m else ""
 
 
 def decode_attachments(items):
@@ -542,12 +568,14 @@ TOOLS = [
      "a few lines, always in the site's look) or a complete HTML page — a one-or-two sentence description "
      "and a category: the start page shows them as a card, so you never write an index page yourself. "
      "Publishing the same slug again adds a version; earlier ones are kept and a person can restore them. "
-     "Reports cannot be deleted or hidden by agents. Link between reports with relative links "
+     "Reports cannot be deleted or hidden by agents. A title, description or category a person set in the "
+     "browser is kept; the result's warnings say so. Link between reports with relative links "
      "('other-slug.html').",
      {"title": {**S, "description": "Shown on the card and in lists"},
       "content": {**S, "description": "The report: a full HTML document (inline CSS/JS) or markdown"},
       "slug": {**S, "description": "Address: lowercase, digits, hyphens. Default: made from the title. "
-                                   "Use the same slug to update a report"},
+                                   "Use the same slug to update a report. The slug is the report's lasting id: "
+                                   "people may rename it in the browser, so find it with list_reports"},
       "format": {**S, "enum": list(FORMATS), "description": "html (default) or markdown"},
       "description": {**S, "description": "What the reader finds in it, one or two sentences"},
       "category": {**S, "description": "Groups cards on the start page; reuse existing ones (list_reports)"},
@@ -570,7 +598,8 @@ TOOLS = [
      {"content": S, "format": {**S, "enum": list(FORMATS)}, "description": S, "slug": S,
       "attachments": {"type": "array", "items": {"type": "object"}}}, ["content"]),
     ("update_report_details", lambda a, w: t_details(a, w),
-     "Change the title, description, category or tags of a report without publishing new content.",
+     "Change the title, description, category or tags of a report without publishing new content. Not those a "
+     "person set in the browser (set_by_person in list_reports).",
      {"slug": S, "title": S, "description": S, "category": S, "tags": {"type": "array", "items": S}}, ["slug"]),
     ("list_reports", lambda a, w: t_list(a),
      "The published reports with title, description, category, version and link, and the categories in use.",
@@ -958,8 +987,15 @@ def details(slug):
                     f'<a class="btn small ghost" href="/r/{esc(slug)}/v/{v["version"]}">{esc(T["view"])}</a>{restore}</td></tr>')
     archived = bool(meta.get("archived"))
     tags = "".join(f'<span class="tag">{esc(t)}</span>' for t in meta.get("tags", []))
+    locked = meta.get("locked") or {}
+    locked_note = "" if not locked else (
+        f'<p class="locked-note">{esc(T["locked_note"].format(fields=", ".join(T["f_" + k].lower() for k in LOCKABLE if k in locked)))} '
+        f'<button class="link-btn" data-action="unlock" data-slug="{esc(slug)}">{esc(T["unlock"])}</button></p>')
+    cats = sorted({m.get("category") for m in store.all() if m.get("category")})
     return page("details.html", title=esc(meta["title"]), slug=esc(slug), description=esc(meta.get("description") or ""),
                 category=esc(meta.get("category") or T["uncategorized"]), tags=tags,
+                category_raw=esc(meta.get("category") or ""), locked_note=locked_note,
+                category_options="".join(f'<option value="{esc(c)}">' for c in cats),
                 created=fmt_time(meta.get("created")), created_by=esc(who_text(meta.get("created_by"), meta.get("created_for"))),
                 updated=fmt_time(meta.get("updated")), updated_by=esc(who_text(meta.get("updated_by"), meta.get("updated_for"))),
                 version=meta["version"], format=esc(meta.get("format")), rows="".join(rows),
@@ -1244,7 +1280,7 @@ class Handler(BaseHTTPRequestHandler):
             reload_brand()
             log(f"browser ({self.ip()}): brand v{meta['version']} ({meta['note']})")
             return self.json(200, meta)
-        m = re.match(r"^/api/reports/([a-z0-9-]+)/(archive|unarchive|restore)$", path)
+        m = re.match(r"^/api/reports/([a-z0-9-]+)/(archive|unarchive|restore|details|unlock)$", path)
         if not m:
             return self.json(404, {"error": "not found"})
         slug, action = m.groups()
@@ -1253,6 +1289,17 @@ class Handler(BaseHTTPRequestHandler):
             if action == "restore":
                 v = int(json.loads(self.body(10_000) or b"{}").get("version"))
                 meta = store.restore(slug, v, who)
+            elif action == "details":
+                body = json.loads(self.body(10_000) or b"{}")
+                try:
+                    meta = store.update_details(slug, who, person=True,
+                                                **{k: body[k] for k in LOCKABLE if isinstance(body.get(k), str)})
+                except ValueError as e:
+                    if store.get(slug):
+                        return self.json(400, {"error": str(e)})
+                    raise
+            elif action == "unlock":
+                meta = store.unlock(slug, who)
             else:
                 meta = store.set_archived(slug, action == "archive", who)
         except (KeyError, ValueError, TypeError):
