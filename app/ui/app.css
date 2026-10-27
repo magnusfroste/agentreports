@@ -183,6 +183,8 @@ details.side-group > summary .n { margin-left: auto; }
 .intro { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; color: var(--muted); font-size: 14.5px; }
 .intro-sub:empty { display: none; }
 .intro .stats { margin: 0; }
+.home-top .theme-slot { margin-left: auto; flex: none; }
+.rbar-actions .theme-slot { margin-left: 8px; display: flex; align-items: center; }
 .menu-btn { display: none; }
 body.side-folded .shell { grid-template-columns: 0 minmax(0, 1fr); }
 body.side-folded .side { visibility: hidden; padding: 0; border: 0; }
@@ -212,6 +214,7 @@ body.side-folded .menu-btn { display: inline-grid; }
   .rbar { padding: 8px 10px; gap: 6px; }
   .rbar-meta, .rbar-title .pill { display: none; }
 }
+@media (max-width: 600px) { .rbar-actions .theme-slot { display: none; } }
 
 /* hero */
 .hero { padding: 44px 0 22px; }
