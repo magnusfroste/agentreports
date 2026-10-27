@@ -2,7 +2,9 @@
 
 **Your agents publish reports over MCP. Your people read them behind a password.**
 
-*A companion to [AgentHotel](https://github.com/magnusfroste/agenthotel), like [AgentTake](https://github.com/magnusfroste/agenttake); it runs anywhere on its own.*
+*A companion to [AgentHotel](https://www.agenthotel.org), like [AgentTake](https://take.agenthotel.org); it runs anywhere on its own.*
+
+🌐 **[reports.agenthotel.org](https://reports.agenthotel.org)** — what it is, in two minutes.
 
 An agent that has worked something out — a month's costs, a reconciliation, an incident write-up — should be able to hand it to a person as a page they can open, not as a wall of chat. AgentReports is that page: one MCP call, and the report is on a start page with a title, a description and a category, next to everything else the agents have published.
 
