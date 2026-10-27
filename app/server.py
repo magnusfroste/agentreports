@@ -43,7 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -94,6 +94,7 @@ WORDS = {
            "link": "Link", "when": "When", "who": "Who", "error": "Something went wrong", "menu": "More",
            "not_found": "Not found", "not_found_text": "There is no report at this address.",
            "details_changed": "Details changed", "view_mode": "View", "view_cards": "Cards", "view_list": "List",
+           "theme": "Theme", "theme_system": "System", "theme_light": "Light", "theme_dark": "Dark",
            "empty_archive": "Nothing archived. Archive a report from its menu (⋯) to hide it from the start page."},
     "sv": {"search": "Sök rapporter", "sort_updated": "Senast uppdaterad", "sort_created": "Nyast",
            "sort_title": "Titel A–Ö", "sort_category": "Per kategori", "show_archived": "Arkiv",
@@ -113,6 +114,7 @@ WORDS = {
            "link": "Länk", "when": "När", "who": "Vem", "error": "Något gick fel", "menu": "Mer",
            "not_found": "Hittades inte", "not_found_text": "Det finns ingen rapport på den här adressen.",
            "details_changed": "Detaljer ändrade", "view_mode": "Visning", "view_cards": "Kort", "view_list": "Lista",
+           "theme": "Tema", "theme_system": "System", "theme_light": "Ljust", "theme_dark": "Mörkt",
            "empty_archive": "Inget arkiverat. Arkivera en rapport från dess meny (⋯) för att dölja den från startsidan."},
 }
 T = WORDS[LANG]
@@ -532,8 +534,9 @@ def brand():
         dark_vars.update({"--accent": dark, "--accent-text": dark, "--accent-ink": ink_for(dark, dark_vars.get("--bg", "#08201d")),
                           "--accent-soft": f"color-mix(in srgb, {dark} 18%, {dark_vars.get('--surface', '#131c1e')})"})
     if dark_vars:
-        rules.append("@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) { "
-                     + " ".join(f"{k}: {v};" for k, v in dark_vars.items()) + " } }")
+        block = " ".join(f"{k}: {v};" for k, v in dark_vars.items())
+        rules.append("@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) { " + block + " } }")
+        rules.append(":root[data-theme=\"dark\"] { " + block + " }")
     if cfg and not rules:
         log("brand.json: nothing usable in it (colours are #rrggbb, fonts need a file); ignored")
     BRAND_INFO.update(colours={k: cfg[k] for k in ("accent", "accent_text", "background", "surface", "text", "muted")
@@ -558,7 +561,9 @@ def brand_html(found):
         img = f'<img src="{logo}?v={{v}}" alt="" height="{height}">'
         if not dark:
             return img
-        return (f'<picture><source srcset="{dark}?v={{v}}" media="(prefers-color-scheme: dark)">{img}</picture>')
+        # Both, and CSS shows one: a <picture> media query would follow the system, not the theme switch.
+        return (f'<img class="logo-light" src="{logo}?v={{v}}" alt="" height="{height}">'
+                f'<img class="logo-dark" src="{dark}?v={{v}}" alt="" height="{height}">')
     return "\n".join(icons), logo_el(32), logo_el(56)
 
 

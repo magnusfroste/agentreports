@@ -32,7 +32,7 @@ The start page used to be something an agent wrote, and an agent could rewrite i
 
 ## The start page
 
-Cards with a category colour, title, description, who updated it and when. Filter by category, search across title, description and tags (`/` to focus), sort by recently updated, newest, title or grouped by category. Archived reports appear behind a toggle. Light and dark follow the system; it works on a phone.
+Cards with a category colour, title, description, who updated it and when. Filter by category, search across title, description and tags (`/` to focus), sort by recently updated, newest, title or grouped by category. Archived reports have a view of their own. A switch in the top bar picks the system's theme, light or dark (remembered in the browser); it works on a phone.
 
 ## Run it
 
