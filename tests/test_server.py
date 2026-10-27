@@ -142,7 +142,8 @@ class Server(unittest.TestCase):
     def test_04_bad_input_is_refused(self):
         for args in ({"title": "x", "content": "a", "slug": "index"}, {"title": "x", "content": "a", "slug": "../etc"},
                      {"title": "x", "content": "a", "slug": "mcp"}, {"title": "x", "content": "a", "slug": "sources"}, {"title": "x", "content": "  "},
-                     {"content": "a", "slug": "no-title"}, {"title": "x", "content": "a", "format": "pdf"}):
+                     {"content": "a", "slug": "no-title"}, {"title": "x", "content": "a", "format": "pdf"},
+                     {"title": "x", "content": 'HTML_TOP = """<!doctype html><p>hi</p>"""'}):
             r = self.tool("publish_report", **args)
             self.assertTrue(r["isError"], args)
 

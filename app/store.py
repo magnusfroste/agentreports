@@ -139,6 +139,10 @@ class Store:
             raise ValueError("content must not be empty")
         if len(data) > MAX_BYTES:
             raise ValueError(f"content is {len(data)} bytes; the limit is {MAX_BYTES}")
+        if fmt == "html" and not data.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
+            raise ValueError("content is not an HTML page: it must start with <!doctype html> or a tag. It looks like "
+                             "the script that builds the page was sent instead of the page it writes; run the script "
+                             "and publish its output (or use format=markdown for markdown)")
         details = clean_details(**{k: v for k, v in details.items() if k in DETAILS})
         sha = hashlib.sha256(data).hexdigest()
         stamp = at or now()

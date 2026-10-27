@@ -47,7 +47,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import brandstore
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")

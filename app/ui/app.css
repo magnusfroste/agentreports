@@ -82,6 +82,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* a hidden view stays hidden whatever display it has */
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
