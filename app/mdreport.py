@@ -440,7 +440,7 @@ def title_of(text):
     return m.group(1).strip() if m else None
 
 
-def render(text, title="", category="", lang="en", data=None):
+def render(text, title="", category="", lang="en", data=None, kit=""):
     """A complete report page from markdown, in the site's report kit."""
     body = render_blocks(text.replace("\r\n", "\n").split("\n"), data)
     eyebrow = f'<p class="r-eyebrow">{_esc(category)}</p>' if category else ""
@@ -448,5 +448,6 @@ def render(text, title="", category="", lang="en", data=None):
         body = f"<h1>{_esc(title)}</h1>" + body
     return (f'<!doctype html><html lang="{_esc(lang)}"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{_esc(title)}</title>'
-            f'<link rel="stylesheet" href="/static/report.css"><script src="/static/report.js" defer></script>'
+            f'<link rel="stylesheet" href="/static/report.css{"?v=" + kit if kit else ""}">'
+            f'<script src="/static/report.js{"?v=" + kit if kit else ""}" defer></script>'
             f'</head><body><main class="r-page">{eyebrow}{body}</main></body></html>')

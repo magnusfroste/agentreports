@@ -340,7 +340,9 @@ class Server(unittest.TestCase):
         for part in (b'class="r-kpis"', b'class="r-kpi-note r-up"', b'class="r-chart" data-type="stacked"',
                      b'"values": [1000.0, 1500.0]', b'<th class="num">', b'class="r-sources"', b'class="r-eyebrow">Finance'):
             self.assertIn(part, body)
-        self.assertEqual(self.req("/static/report.js")[0], 200)  # public, a sandboxed report loads it
+        code, h, _ = self.req("/static/report.js")
+        self.assertEqual((code, h["Cache-Control"]), (200, "public, max-age=300"))  # public, short-lived
+        self.assertRegex(body.decode(), r'/static/report\.js\?v=[0-9a-f]{10}')  # markdown pages get the current kit
         # broken markdown and scripts-instead-of-pages are refused, with the reason
         for content, fmt in (("::kpis\n- 1 | a\n", "markdown"), ("```chart pie\na,b\n1,2\n```", "markdown"),
                              ('x = 1\nHTML = """<p>a</p>"""', "html"),

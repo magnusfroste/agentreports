@@ -810,6 +810,7 @@ def brand_html(found):
 
 ASSETS = {n: asset(n) for n in os.listdir(UI)}
 REPORT_KIT = ASSETS.pop("report.css")
+REPORT_JS = ASSETS.pop("report.js")  # not through the week-long cache of /static/*: reports link it without a version
 DEFAULT_ICONS = {n: ASSETS[n] for n in ("favicon.svg", "favicon.ico", "apple-touch-icon.png")}
 BRANDING = {}          # the current brand, swapped as a whole when it changes
 _brand_lock = threading.Lock()
@@ -996,11 +997,16 @@ def brand_page():
                 data=json_script({"lang": LANG, "words": T}))
 
 
+def kit_version():
+    """Changes with the report kit and the brand, so a cache in front never serves an old kit to a new page."""
+    return hashlib.sha256(REPORT_JS + BRANDING["report_css"]).hexdigest()[:10]
+
+
 def markdown_page(meta, data, version=None):
     text = data.decode("utf-8", "replace")
     try:
         return mdreport.render(text, meta["title"], meta.get("category") or "", LANG,
-                               store.attachments(meta["slug"], version)).encode()
+                               store.attachments(meta["slug"], version), kit_version()).encode()
     except mdreport.MarkdownError as e:  # stored before it was checked: show it as text rather than fail
         return (f'<!doctype html><html lang="{LANG}"><head><meta charset="utf-8"><title>{esc(meta["title"])}</title>'
                 f'<link rel="stylesheet" href="/static/report.css"></head><body><main class="r-page">'
@@ -1105,7 +1111,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, b["report_css"], "text/css; charset=utf-8",
                              {"Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*"})
         if path == "/static/report.js":
-            return self.send(200, ASSETS["report.js"], "text/javascript; charset=utf-8",
+            return self.send(200, REPORT_JS, "text/javascript; charset=utf-8",
                              {"Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*"})
         if path == "/mcp":
             return self.send(405, b"", headers={"Allow": "POST"})
