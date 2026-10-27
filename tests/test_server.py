@@ -167,9 +167,17 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/letter.md", cookie=c)[1]["Location"], "/letter.html")
         self.assertEqual(self.req("/index.html", cookie=c)[1]["Location"], "/")
         self.assertEqual(self.req("/nope.html", cookie=c)[0], 404)
-        code, _, body = self.req("/r/overview-q3-2026", cookie=c)
+        code, _, body = self.req("/r/overview-q3-2026", cookie=c)  # the app, opened on this report
+        self.assertEqual(code, 200)
+        self.assertIn(b'"open": "overview-q3-2026"', body)
+        self.assertEqual(self.req("/r/no-such-report", cookie=c)[0], 404)
+        code, _, body = self.req("/r/overview-q3-2026/info", cookie=c)  # versions and details
         self.assertEqual(code, 200)
         self.assertIn(b"new figures", body)
+        # Framed in the app, a report says which one it is; opened on its own, it is left as it was.
+        framed = self.req("/letter.html", headers={"Sec-Fetch-Dest": "iframe"}, cookie=c)
+        self.assertTrue(framed[2].startswith(b"<p>hello</p>") and b'var s="letter"' in framed[2] and b'agentreportsGo' in framed[2])
+        self.assertIn("frame-ancestors 'self'", framed[1]["Content-Security-Policy"])
         self.assertEqual(self.req("/r/overview-q3-2026/v/1", cookie=c)[2], b"<h1>v1</h1>")
 
     def test_06_only_people_archive_and_restore(self):
@@ -219,7 +227,7 @@ class Server(unittest.TestCase):
         self.assertEqual((r["updated_by_text"], r["created_by_text"]), ("Ana Lind", "Sam Berg via Hermes"))
         vs = self.tool("report_versions", slug="requested")["versions"]
         self.assertEqual([(v["by"], v["requested_by"]) for v in vs], [("laptop", None), ("hermes", "Sam Berg")])
-        code, _, body = self.req("/r/requested", cookie=self.login())
+        code, _, body = self.req("/r/requested/info", cookie=self.login())
         self.assertIn(b"Sam Berg via Hermes", body)
 
     def test_08b_brand(self):

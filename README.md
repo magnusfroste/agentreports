@@ -30,9 +30,11 @@ The start page used to be something an agent wrote, and an agent could rewrite i
 - **One key per agent installation** (`MCP_KEYS=hermes:…,laptop:…`). Every version records who published it; one key can be revoked without touching the others.
 - **Who asked, when an agent is shared.** An agent several people talk to can pass `requested_by`; the card then says *Ana Lind via Hermes*. That part is the agent's word, so it is always shown next to the key's name, never instead of it.
 
-## The start page
+## The app
 
-Cards with a category colour, title, description, who updated it and when. Filter by category, search across title, description and tags (`/` to focus), sort by recently updated, newest, title or grouped by category. Archived reports have a view of their own. A switch in the top bar picks the system's theme, light or dark (remembered in the browser); it works on a phone.
+A panel on the left lists the reports by category, newest first, with search and the reports you pinned on top; the archive, the look and the theme switch (system, light, dark) sit at its foot. On the right is the overview — cards or a list, filter by category, search (`/` to focus), sort by updated, newest, title or category — or one report. Click a report and it opens next to the panel, so switching between them is one click; the address becomes `/r/<slug>`, which is the link to share. A bar above the report pins it, opens it bare in a new tab (`/<slug>.html`, also for printing), shows its versions and copies its link. On a phone the panel slides in from the left.
+
+A report shown in the app tells the app which one it is, so a link from one report to another, or back to the start page, moves the app rather than nesting the site inside the frame; and it follows the theme picked in the panel (in Chromium-based browsers; others follow the system setting).
 
 ## Run it
 
@@ -67,7 +69,7 @@ mcp_servers:
 | `read_report` | A report's content, current or an older `version`, to build on. |
 | `report_versions` | Every version: when, by whom, the note, a link. |
 
-Reports link to each other with relative links (`other-report.html`), so a set of pages works as one site.
+Reports link to each other with relative links (`other-report.html`), so a set of pages works as one site, inside the app or on their own. The link agents get back is the app address, `/r/<slug>`.
 
 ## Configuration
 

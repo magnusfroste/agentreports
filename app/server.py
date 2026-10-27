@@ -47,7 +47,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import brandstore
 from store import FORMATS, RESERVED, SLUG, Conflict, Store, slugify
 
-VERSION = "0.1.9"
+VERSION = "0.2.0"
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 DATA = os.environ.get("DATA_DIR", "/data")
 PASSWORD = os.environ.get("REPORTS_PASSWORD", "")
@@ -65,7 +65,7 @@ SESSION_DAYS = 30
 LOCKOUT_FAILS, LOCKOUT_SECONDS = 10, 900
 COOKIE = "ar_session"
 REPORT_CSP = ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals "
-              "allow-downloads allow-top-navigation-by-user-activation")
+              "allow-downloads allow-top-navigation-by-user-activation; frame-ancestors 'self'")
 PAGE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MARKED = "https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"
@@ -106,6 +106,8 @@ WORDS = {
            "brand_base": "Back to the base look", "brand_base_confirm": "Remove what agents changed and go back to the base look? It stays in the history.",
            "brand_restore_confirm": "Make this version the current look? Nothing is lost.", "brand_none": "Agents have not changed the look.",
            "brand_changed": "Changed", "brand_current_base": "the base look", "brand_off": "Agents may not change the look on this site (AGENT_BRANDING=off).",
+           "overview": "Overview", "pinned": "Pinned", "pin": "Pin", "unpin": "Unpin", "open_tab": "Open in a new tab",
+           "panel": "Panel", "menu_open": "Open the menu", "not_found_report": "That report does not exist (any more).",
            "empty_archive": "Nothing archived. Archive a report from its menu (⋯) to hide it from the start page."},
     "sv": {"search": "Sök rapporter", "sort_updated": "Senast uppdaterad", "sort_created": "Nyast",
            "sort_title": "Titel A–Ö", "sort_category": "Per kategori", "show_archived": "Arkiv",
@@ -130,6 +132,8 @@ WORDS = {
            "brand_base": "Tillbaka till grundprofilen", "brand_base_confirm": "Ta bort det agenterna ändrat och gå tillbaka till grundprofilen? Det finns kvar i historiken.",
            "brand_restore_confirm": "Gör den här versionen till den aktuella profilen? Inget går förlorat.", "brand_none": "Agenterna har inte ändrat profilen.",
            "brand_changed": "Ändrat", "brand_current_base": "grundprofilen", "brand_off": "Agenter får inte ändra profilen på den här sidan (AGENT_BRANDING=off).",
+           "overview": "Översikt", "pinned": "Fästa", "pin": "Fäst", "unpin": "Lossa", "open_tab": "Öppna i ny flik",
+           "panel": "Panel", "menu_open": "Öppna menyn", "not_found_report": "Den rapporten finns inte (längre).",
            "empty_archive": "Inget arkiverat. Arkivera en rapport från dess meny (⋯) för att dölja den från startsidan."},
 }
 T = WORDS[LANG]
@@ -218,7 +222,8 @@ def agent(header):
 # --- reports as the outside sees them -------------------------------------------------------
 
 def url_of(slug, version=None):
-    path = f"/r/{slug}/v/{version}" if version else f"/{slug}.html"
+    """The address to share: the report inside the site (panel on the left); /<slug>.html is the bare page."""
+    path = f"/r/{slug}/v/{version}" if version else f"/r/{slug}"
     return PUBLIC_URL + path
 
 
@@ -733,10 +738,22 @@ def page(name, **values):
     return re.sub(r"\{\{(t\.)?(\w+)\}\}", fill, ASSETS[name].decode()).encode()
 
 
-def dashboard():
+# Appended to a report shown inside the app: it tells the app which report is showing, and sends links to
+# the start page or to another report's app address (/r/<slug>) to the app instead of opening the whole
+# site inside the frame. It carries nothing but a slug or such a path.
+FRAME_SCRIPT = """<script>(function(){var s=%s;try{parent.postMessage({agentreports:s},"*")}catch(e){}
+document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest("a[href]");
+if(!a||(a.target&&a.target!=="_self")||e.metaKey||e.ctrlKey||e.shiftKey)return;var u;try{u=new URL(a.href)}catch(x){return}
+if(u.host!==location.host)return;if(u.pathname==="/"||/^\\/r\\/[a-z0-9-]+\\/?$/.test(u.pathname)){e.preventDefault();
+parent.postMessage({agentreportsGo:u.pathname},"*")}},true)})();</script>"""
+
+
+def shell(slug=None):
+    """The app: reports in a panel on the left; the overview, or one report, on the right."""
     reports = [public(m) for m in store.all()]
     return page("dashboard.html", subtitle=esc(SUBTITLE),
-                data=json_script({"lang": LANG, "words": T, "reports": reports}))
+                data=json_script({"lang": LANG, "words": T, "reports": reports, "open": slug,
+                                  "site": TITLE, "brand_page": bool(AGENT_BRANDING or BRAND_DIR)}))
 
 
 def fmt_time(iso):
@@ -922,12 +939,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/login?next=" + urllib.parse.quote(self.path, safe=""))
 
         if path in ("/", "/index.html"):
-            return self.redirect("/") if path != "/" else self.ours(dashboard())
+            return self.redirect("/") if path != "/" else self.ours(shell())
         if path == "/brand":
             return self.ours(brand_page())
         if path == "/api/reports":
             return self.json(200, {"reports": [public(m) for m in store.all()]}, {"Cache-Control": "no-store"})
         m = re.match(r"^/r/([a-z0-9-]+)/?$", path)
+        if m:
+            return self.ours(shell(m.group(1))) if store.get(m.group(1)) else self.not_found()
+        m = re.match(r"^/r/([a-z0-9-]+)/info$", path)
         if m:
             body = details(m.group(1))
             return self.ours(body) if body else self.not_found()
@@ -950,6 +970,10 @@ class Handler(BaseHTTPRequestHandler):
         meta, data, info = found
         if info["format"] == "markdown":
             data = markdown_page(meta, data)
+        if self.headers.get("Sec-Fetch-Dest") == "iframe":
+            # Inside the site's panel: tell the page around it which report is showing, so a link from one
+            # report to another updates the address bar and the panel. Only the slug, only to the parent.
+            data += (FRAME_SCRIPT % json.dumps(meta["slug"])).encode()
         # The report runs in a sandbox: its scripts work, but it has no access to the session or to the
         # start page, so a report can not archive, restore or read anything on behalf of the reader.
         self.send(200, data, "text/html; charset=utf-8", {"Content-Security-Policy": REPORT_CSP,
