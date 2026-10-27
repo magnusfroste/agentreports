@@ -156,6 +156,20 @@ Built from the ledger on 2026-10-27.
 ::
 ````
 
+### Lots of data: data files
+
+Large data should never pass through the model. A script writes it to a CSV or JSON file and publishes it with the report (`attachments: [{name: "invoices.csv", content: "…"}]`, up to 5 MB each); the markdown only names it:
+
+````markdown
+```datatable invoices.csv search filter="Carrier, Month" sort="Date desc" sum="Amount" page="50"
+```
+
+```chart stacked data="invoices.csv" x="Month" y="Amount" group="Carrier"
+```
+````
+
+The table has search, a dropdown per filter column, sorting by clicking a header, totals that follow the filter, paging and a CSV download of what is shown; link columns (`[PDF](/files/…)` or a URL) become links, and `report.html?Carrier=Alpha` opens it filtered. The chart is summed from the same file, so table and chart always agree. The data is drawn into the page by the server (sandboxed reports cannot fetch it), kept with the version it was published with, carried over to later versions unless sent again, and downloadable by signed-in people at `/r/<slug>/v/<n>/data/<file>`.
+
 Charts are `bar`, `stacked`, `hbar`, `line` and `donut`, from CSV, drawn as SVG by `/static/report.js` in the brand's series colours, with hover values, light and dark. Numeric table columns are right-aligned and a row starting in **bold** is a total. Also `::details Title`, `::grid`, `::card`. Everything is escaped; links may only be http(s), mailto, relative or anchors. A tenth of the text of the HTML page it replaces, so there is little for a model to get wrong.
 
 ## Reports that look like the site

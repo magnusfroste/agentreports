@@ -106,6 +106,16 @@ details.r-details summary { cursor: pointer; font-weight: 600; }
 .r-chart svg rect, .r-chart svg path, .r-chart svg circle { transition: opacity .15s; }
 .r-chart svg :is(rect, path, circle):hover { opacity: .8; }
 
+/* interactive tables (```datatable, drawn by /static/report.js) */
+.r-datatable-wrap { margin: 16px 0; }
+.r-datatable .r-toolbar { margin: 0 0 10px; }
+.r-select { height: 40px; padding: 0 10px; border-radius: var(--radius-control); border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; max-width: 100%; }
+.r-count { color: var(--faint); font-size: 13px; margin-left: auto; }
+.r-datatable .r-table-wrap { margin: 0; }
+.r-datatable th { user-select: none; }
+.r-more { margin: 10px auto 0; display: block; }
+.r-more[hidden] { display: none; }
+
 /* plain text in a report (markdown reports use these) */
 .r-page p { margin: 10px 0; max-width: 75ch; }
 .r-page ul, .r-page ol { margin: 10px 0; padding-left: 22px; max-width: 75ch; }

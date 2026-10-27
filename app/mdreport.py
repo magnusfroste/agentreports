@@ -17,6 +17,12 @@ need:
     2026-09, 412000, 88000
     ```
 
+    ```datatable invoices.csv search filter="Carrier, Month" sort="Date desc" sum="Amount"
+    ```                            an interactive table from a data file sent with the report
+                                   (or CSV inside the block): search, filters, sorting, a total that
+                                   follows the filter, paging and a CSV download
+    ```chart bar data="invoices.csv" x="Month" y="Amount" group="Carrier"
+    ```                            a chart summed from the same file
     ::details Title                a section the reader can fold out
     ::sources                      the footer: what the report is built on
 
@@ -29,6 +35,8 @@ import json
 import re
 
 CHART_TYPES = ("bar", "stacked", "hbar", "line", "donut")
+ATTACHMENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,60}\.(csv|json)$")
+MAX_ROWS = 50000
 NOTE_KINDS = ("warn", "bad", "good")
 
 
@@ -81,9 +89,155 @@ def parse_number(s):
         return None
 
 
-def chart(kind, args, body):
+def options(args):
+    """'file.csv search filter="A, B" page="50"' -> ({'filter': 'A, B', 'page': '50'}, {'search'}, 'file.csv')."""
+    named = dict(re.findall(r'(\w+)="([^"]*)"', args))
+    rest = re.sub(r'\w+="[^"]*"', " ", args).split()
+    files = [t for t in rest if ATTACHMENT.match(t)]
+    return named, {t for t in rest if not ATTACHMENT.match(t)}, (files[0] if files else None)
+
+
+def load_table(name, blob):
+    """A data file as {'columns': [...], 'rows': [[...]]}: CSV with a header (comma, semicolon or tab), a JSON
+    array of objects, or JSON {'columns': [...], 'rows': [[...]]}."""
+    text = blob.decode("utf-8-sig", "replace") if isinstance(blob, bytes) else blob
+    if (name or "").endswith(".json") or text.lstrip().startswith(("[", "{")):
+        try:
+            data = json.loads(text)
+        except ValueError as e:
+            raise MarkdownError(f"{name}: not valid JSON ({e})")
+        if isinstance(data, dict) and "columns" in data and "rows" in data:
+            columns, rows = [str(c) for c in data["columns"]], [list(r) for r in data["rows"]]
+        elif isinstance(data, list) and data and all(isinstance(r, dict) for r in data):
+            columns = list(dict.fromkeys(k for r in data for k in r))
+            rows = [[r.get(c) for c in columns] for r in data]
+        else:
+            raise MarkdownError(f"{name}: JSON must be an array of objects or {{columns, rows}}")
+    else:
+        first = text.split("\n", 1)[0]
+        delim = max((";", "\t", ","), key=first.count)
+        rows = [r for r in csv.reader(io.StringIO(text), delimiter=delim) if any(c.strip() for c in r)]
+        if not rows:
+            raise MarkdownError(f"{name or 'datatable'}: empty")
+        columns, rows = [c.strip() for c in rows[0]], rows[1:]
+    if len(rows) > MAX_ROWS:
+        raise MarkdownError(f"{name}: {len(rows)} rows, the limit is {MAX_ROWS}")
+    rows = [(list(r) + [None] * len(columns))[:len(columns)] for r in rows]
+    return {"columns": columns, "rows": rows}
+
+
+def typed(table):
+    """Columns typed: number, link or text; numbers parsed, links checked."""
+    types, out_rows = [], [list(r) for r in table["rows"]]
+    for i, _ in enumerate(table["columns"]):
+        cells = [r[i] for r in table["rows"] if r[i] not in (None, "")]
+        if cells and all(isinstance(c, (int, float)) or (isinstance(c, str) and NUMBER.match(c.strip())) for c in cells):
+            types.append("number")
+            for r in out_rows:
+                v = r[i]
+                r[i] = None if v in (None, "") else (float(v) if isinstance(v, (int, float)) else parse_number(str(v)))
+        elif cells and all(isinstance(c, str) and re.match(r"^(\[[^\]]+\]\([^)]+\)|https?://\S+|/\S+)$", c.strip()) for c in cells):
+            types.append("link")
+            for r in out_rows:
+                v = (r[i] or "").strip() if isinstance(r[i], str) else ""
+                m = re.match(r"^\[([^\]]+)\]\(([^)]+)\)$", v)
+                text, url = (m.group(1), m.group(2)) if m else (v.rstrip("/").rsplit("/", 1)[-1][:40], v)
+                r[i] = {"t": text, "u": _url(url)} if v else None
+        else:
+            types.append("text")
+            for r in out_rows:
+                r[i] = None if r[i] is None else str(r[i])
+    return {"columns": table["columns"], "types": types, "rows": out_rows}
+
+
+def _cols(spec, columns, what):
+    out = [c.strip() for c in (spec or "").split(",") if c.strip()]
+    lower = {c.lower(): c for c in columns}
+    missing = [c for c in out if c.lower() not in lower]
+    if missing:
+        raise MarkdownError(f"{what}: no column {', '.join(missing)} (columns: {', '.join(columns)})")
+    return [lower[c.lower()] for c in out]
+
+
+def datatable(args, body, data):
+    named, flags, file = options(args)
+    if file:
+        if file not in data:
+            raise MarkdownError(f"datatable: no data file {file!r} with the report (send it with attachments; "
+                                f"there is {', '.join(data) or 'none'})")
+        table = load_table(file, data[file])
+    elif body.strip():
+        table = load_table("", body)
+    else:
+        raise MarkdownError("datatable: name a data file (```datatable invoices.csv```) or put CSV in the block")
+    t = typed(table)
+    cols = t["columns"]
+    show = _cols(named.get("columns"), cols, "datatable columns") or cols
+    sort = named.get("sort", "").strip()
+    sort_col, sort_dir = (sort.rsplit(" ", 1) + ["asc"])[:2] if sort else ("", "asc")
+    if sort and sort_dir.lower() not in ("asc", "desc"):
+        sort_col, sort_dir = sort, "asc"
+    spec = {**t, "show": show,
+            "filter": _cols(named.get("filter"), cols, "datatable filter"),
+            "sum": _cols(named.get("sum"), cols, "datatable sum"),
+            "sort": {"col": _cols(sort_col, cols, "datatable sort")[0], "dir": sort_dir.lower()} if sort_col else None,
+            "search": "search" in flags or "filter" in named, "page": int(named.get("page", "50") or 50),
+            "download": file or "data.csv", "title": named.get("title", "")}
+    data_json = json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")
+    title = f'<p class="r-chart-title">{_esc(spec["title"])}</p>' if spec["title"] else ""
+    return (f'<figure class="r-datatable-wrap">{title}<div class="r-datatable">'
+            f'<script type="application/json">{data_json}</script></div></figure>')
+
+
+def chart_from_data(kind, named, data):
+    file = named.get("data", "")
+    if file not in data:
+        raise MarkdownError(f"chart: no data file {file!r} with the report (there is {', '.join(data) or 'none'})")
+    t = typed(load_table(file, data[file]))
+    x = _cols(named.get("x"), t["columns"], "chart x")
+    if not x:
+        raise MarkdownError('chart: give x="Column" for the labels')
+    y = _cols(named.get("y"), t["columns"], "chart y")
+    group = _cols(named.get("group"), t["columns"], "chart group")
+    xi = t["columns"].index(x[0])
+    yi = t["columns"].index(y[0]) if y else None
+    gi = t["columns"].index(group[0]) if group else None
+    if yi is not None and t["types"][yi] != "number":
+        raise MarkdownError(f"chart: column {y[0]} is not numbers")
+    sums, labels, groups = {}, [], {}
+    for r in t["rows"]:
+        lab = "" if r[xi] is None else str(r[xi] if not isinstance(r[xi], dict) else r[xi]["t"])
+        g = "" if gi is None or r[gi] is None else str(r[gi])
+        v = 1 if yi is None else (r[yi] or 0)
+        if lab not in sums:
+            sums[lab] = {}
+            labels.append(lab)
+        sums[lab][g] = sums[lab].get(g, 0) + v
+        groups[g] = groups.get(g, 0) + v
+    if named.get("order", "label") == "label":
+        labels.sort()
+    elif named.get("order") == "value":
+        labels.sort(key=lambda l: -sum(sums[l].values()))
+    top = [g for g, _ in sorted(groups.items(), key=lambda kv: -kv[1])]
+    other = top[5:] if len(top) > 6 else []
+    top = top[:5] if other else top
+    names = top + (["Other"] if other else [])
+    series = [{"name": n or named.get("name") or (y[0] if y else "Count"), "values": [
+        round(sum(sums[l].get(g, 0) for g in other), 2) if n == "Other" and other else round(sums[l].get(n, 0), 2)
+        for l in labels]} for n in names]
+    if kind in ("hbar", "donut") and len(series) > 1:
+        series = [{"name": named.get("name") or (y[0] if y else "Count"),
+                   "values": [round(sum(sums[l].values()), 2) for l in labels]}]
+    return {"type": kind, "labels": labels, "series": series, "title": named.get("title", ""),
+            "unit": named.get("unit", "")}
+
+
+def chart(kind, args, body, data=None):
     if kind not in CHART_TYPES:
         raise MarkdownError(f"chart: type must be one of {', '.join(CHART_TYPES)}, not {kind!r}")
+    named = dict(re.findall(r'(\w+)="([^"]*)"', args))
+    if named.get("data"):
+        return chart_html(chart_from_data(kind, named, data or {}))
     rows = [r for r in csv.reader(io.StringIO(body.strip()), skipinitialspace=True) if any(c.strip() for c in r)]
     if len(rows) < 2 or len(rows[0]) < 2:
         raise MarkdownError("chart: a header row and at least one data row, like 'Month, Cost' then '2026-09, 412000'")
@@ -101,9 +255,13 @@ def chart(kind, args, body):
     opts = dict(re.findall(r'(\w+)="([^"]*)"', args))
     spec = {"type": kind, "labels": labels, "series": series,
             "title": opts.get("title", ""), "unit": opts.get("unit", "")}
+    return chart_html(spec)
+
+
+def chart_html(spec):
     data_json = json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")
     title = f'<p class="r-chart-title">{_esc(spec["title"])}</p>' if spec["title"] else ""
-    return (f'<figure class="r-chart-wrap">{title}<div class="r-chart" data-type="{kind}">'
+    return (f'<figure class="r-chart-wrap">{title}<div class="r-chart" data-type="{spec["type"]}">'
             f'<script type="application/json">{data_json}</script></div></figure>')
 
 
@@ -134,8 +292,9 @@ def table(lines):
     return "".join(out)
 
 
-def render_blocks(lines):
-    """Markdown lines to HTML."""
+def render_blocks(lines, data=None):
+    """Markdown lines to HTML. data: {file name: bytes} sent with the report."""
+    data = data or {}
     out, i, para, lead_next = [], 0, [], False
 
     def flush():
@@ -160,9 +319,12 @@ def render_blocks(lines):
             if j >= len(lines):
                 raise MarkdownError(f"line {i + 1}: a ``` block is not closed")
             body = "\n".join(lines[i + 1:j])
-            if m.group(1) == "chart":
+            if m.group(1) in ("chart", "datatable"):
                 try:
-                    out.append(chart(m.group(2) or "bar", m.group(3) or "", body))
+                    if m.group(1) == "chart":
+                        out.append(chart(m.group(2) or "bar", m.group(3) or "", body, data))
+                    else:
+                        out.append(datatable(s[s.index("datatable") + len("datatable"):], body, data))
                 except MarkdownError as e:
                     raise MarkdownError(f"line {i + 1}: {e}")
             else:
@@ -202,15 +364,15 @@ def render_blocks(lines):
                 out.append(f'<div class="r-kpis">{"".join(items)}</div>')
             elif name == "note":
                 kind = arg if arg in NOTE_KINDS else ""
-                out.append(f'<div class="r-note{" " + kind if kind else ""}">{render_blocks(inner)}</div>')
+                out.append(f'<div class="r-note{" " + kind if kind else ""}">{render_blocks(inner, data)}</div>')
             elif name == "details":
-                out.append(f'<details class="r-details"><summary>{inline(arg or "…")}</summary>{render_blocks(inner)}</details>')
+                out.append(f'<details class="r-details"><summary>{inline(arg or "…")}</summary>{render_blocks(inner, data)}</details>')
             elif name == "sources":
-                out.append(f'<footer class="r-sources">{render_blocks(inner)}</footer>')
+                out.append(f'<footer class="r-sources">{render_blocks(inner, data)}</footer>')
             elif name == "grid":
-                out.append(f'<div class="r-grid">{render_blocks(inner)}</div>')
+                out.append(f'<div class="r-grid">{render_blocks(inner, data)}</div>')
             elif name == "card":
-                out.append(f'<div class="r-card">{render_blocks(inner)}</div>')
+                out.append(f'<div class="r-card">{render_blocks(inner, data)}</div>')
             else:
                 raise MarkdownError(f"line {i + 1}: unknown block ::{name} (kpis, note, details, sources, grid, card)")
             i = j + 1
@@ -246,7 +408,7 @@ def render_blocks(lines):
             j = i
             while j < len(lines) and lines[j].strip().startswith(">"):
                 j += 1
-            out.append(f"<blockquote>{render_blocks([l.strip()[1:] for l in lines[i:j]])}</blockquote>")
+            out.append(f"<blockquote>{render_blocks([l.strip()[1:] for l in lines[i:j]], data)}</blockquote>")
             i = j
             continue
         m = re.match(r"^([-*+]|\d+[.)])\s+(.*)$", s)
@@ -278,9 +440,9 @@ def title_of(text):
     return m.group(1).strip() if m else None
 
 
-def render(text, title="", category="", lang="en"):
+def render(text, title="", category="", lang="en", data=None):
     """A complete report page from markdown, in the site's report kit."""
-    body = render_blocks(text.replace("\r\n", "\n").split("\n"))
+    body = render_blocks(text.replace("\r\n", "\n").split("\n"), data)
     eyebrow = f'<p class="r-eyebrow">{_esc(category)}</p>' if category else ""
     if "<h1>" not in body and title:
         body = f"<h1>{_esc(title)}</h1>" + body

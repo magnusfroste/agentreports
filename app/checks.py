@@ -18,7 +18,7 @@ def _visible(html):
     return re.sub(r"(?s)<[^>]+>", " ", s)
 
 
-def check(content, fmt="html", details=None, report_style=True):
+def check(content, fmt="html", details=None, report_style=True, data=None):
     """(errors, warnings) for a report about to be published."""
     errors, warnings = [], []
     details = details or {}
@@ -30,7 +30,7 @@ def check(content, fmt="html", details=None, report_style=True):
                         "on what the reader learns, ideally with a key figure.")
     if fmt == "markdown":
         try:
-            page = mdreport.render(text)
+            page = mdreport.render(text, data=data or {})
         except mdreport.MarkdownError as e:
             return [f"Markdown: {e}"], warnings
         if "<h1>" not in page:

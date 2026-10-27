@@ -370,6 +370,36 @@ class Server(unittest.TestCase):
         self.assertFalse(r["draft"])
         self.assertIn("draft-one", [x["slug"] for x in self.tool("list_reports")["reports"]])
 
+    def test_08h_data_files_for_tables_and_charts(self):
+        rows = "Date;Carrier;Month;Amount;PDF\n" + "".join(
+            f"2026-0{8 + i % 2}-1{i};{'Alpha' if i % 3 else 'Beta'};2026-0{8 + i % 2};{100 + i},5;/files/{i}.pdf\n" for i in range(9))
+        md = ('# Ledger\n\n```datatable invoices.csv search filter="Carrier" sort="Date desc" sum="Amount"\n```\n\n'
+              '```chart stacked data="invoices.csv" x="Month" y="Amount" group="Carrier"\n```\n\n::sources\nx\n::')
+        r = self.tool("publish_report", title="Ledger", slug="ledger", content=md, format="markdown", description="All.",
+                      attachments=[{"name": "invoices.csv", "content": rows}])
+        self.assertEqual((r["version"], r["warnings"]), (1, []))
+        c = self.login()
+        page = self.req("/ledger.html", cookie=c)[2]
+        self.assertIn(b'class="r-datatable"', page)
+        self.assertIn(b'"sum": ["Amount"]', page)
+        self.assertIn(b'"types": ["text", "text", "text", "number", "link"]', page)
+        self.assertIn(b'"labels": ["2026-08", "2026-09"]', page)
+        self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv", cookie=c)[2].decode(), rows)
+        self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv")[0], 303)  # people only
+        self.assertEqual(self.tool("read_report", slug="ledger")["attachments"], {"invoices.csv": len(rows.encode())})
+        # a new version without the file keeps it; a missing file or column is refused with the reason
+        r = self.tool("publish_report", title="Ledger", slug="ledger", content=md + "\n", format="markdown")
+        self.assertEqual(r["version"], 2)
+        self.assertIn(b'class="r-datatable"', self.req("/ledger.html", cookie=c)[2])
+        for bad in (md.replace("invoices.csv search", "other.csv search"), md.replace('sum="Amount"', 'sum="Nope"')):
+            r = self.tool("publish_report", title="Ledger", slug="ledger", content=bad, format="markdown")
+            self.assertTrue(r["isError"])
+        # only the data changes: still a new version, and v1 keeps its own file
+        r = self.tool("publish_report", title="Ledger", slug="ledger", content=md + "\n", format="markdown",
+                      attachments=[{"name": "invoices.csv", "content": rows + "2026-09-30;Beta;2026-09;1;/files/x.pdf\n"}])
+        self.assertEqual(r["version"], 3)
+        self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv", cookie=c)[2].decode(), rows)
+
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}
         codes = [self.req("/login", b"password=nope", h)[0] for _ in range(10)]

@@ -23,6 +23,8 @@ RESERVED = {"index", "api", "mcp", "login", "logout", "health", "r", "static", "
             "favicon", "apple-touch-icon", "robots", "assets"}
 FORMATS = {"html": ".html", "markdown": ".md"}
 DETAILS = ("title", "description", "category", "tags")
+ATTACHMENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,60}\.(csv|json)$")
+MAX_ATTACHMENT, MAX_ATTACHMENTS = 5 * 1024 * 1024, 10
 MAX_BYTES = int(os.environ.get("MAX_REPORT_BYTES", str(10 * 1024 * 1024)))
 
 
@@ -122,10 +124,26 @@ class Store:
         with open(os.path.join(self._dir(slug), f"v{n:04d}{FORMATS[info['format']]}"), "rb") as f:
             return meta, f.read(), info
 
+    def attachments(self, slug, version=None):
+        """{name: bytes} of the data files that belong to a version (data for tables and charts)."""
+        meta = self.get(slug)
+        if not meta:
+            return {}
+        n = int(version or meta["version"])
+        d = os.path.join(self._dir(slug), f"v{n:04d}.data")
+        if not os.path.isdir(d):
+            return {}
+        out = {}
+        for name in sorted(os.listdir(d)):
+            if ATTACHMENT.match(name):
+                with open(os.path.join(d, name), "rb") as f:
+                    out[name] = f.read()
+        return out
+
     # --- writing ----------------------------------------------------------------------------
 
     def publish(self, slug, content, by, fmt="html", note=None, expected_version=None, at=None, requested_by=None,
-                draft=None, **details):
+                draft=None, attachments=None, **details):
         """Add a version. Returns (meta, changed): publishing identical content changes only the details.
 
         by is the agent key's name (proven by the key); requested_by is who the agent says asked for it."""
@@ -144,6 +162,12 @@ class Store:
                              "the script that builds the page was sent instead of the page it writes; run the script "
                              "and publish its output (or use format=markdown for markdown)")
         details = clean_details(**{k: v for k, v in details.items() if k in DETAILS})
+        attachments = attachments or {}
+        for name, blob in attachments.items():
+            if not ATTACHMENT.match(name):
+                raise ValueError(f"attachment {name!r}: a name like invoices.csv or data.json (lowercase, digits, . _ -)")
+            if blob is not None and len(blob) > MAX_ATTACHMENT:
+                raise ValueError(f"attachment {name}: {len(blob)} bytes, the limit is {MAX_ATTACHMENT}")
         sha = hashlib.sha256(data).hexdigest()
         stamp = at or now()
         requested_by = " ".join(str(requested_by or "").split())[:80] or None
@@ -163,17 +187,35 @@ class Store:
                         "created_for": requested_by, "archived": False, "draft": bool(draft)}
                 os.makedirs(self._dir(slug), exist_ok=True)
             current = self.content(slug) if meta["version"] else None
-            changed = not current or current[2].get("sha256") != sha or current[2].get("format") != fmt
+            # The data files carry over from the version before unless they are given again (None removes one).
+            files = self.attachments(slug) if meta["version"] else {}
+            for name, blob in attachments.items():
+                if blob is None:
+                    files.pop(name, None)
+                else:
+                    files[name] = blob if isinstance(blob, bytes) else str(blob).encode()
+            if len(files) > MAX_ATTACHMENTS:
+                raise ValueError(f"at most {MAX_ATTACHMENTS} data files per report")
+            data_sha = hashlib.sha256(b"".join(n.encode() + b"\0" + hashlib.sha256(b).digest()
+                                               for n, b in sorted(files.items()))).hexdigest() if files else None
+            changed = (not current or current[2].get("sha256") != sha or current[2].get("format") != fmt
+                       or current[2].get("data_sha256") != data_sha)
             meta.update(details)
             if draft is False and meta.get("draft"):
                 meta.update(draft=False, published=stamp, published_by=by)
             if changed:
                 n = meta["version"] + 1
                 self._write(os.path.join(self._dir(slug), f"v{n:04d}{FORMATS[fmt]}"), data)
+                if files:
+                    ddir = os.path.join(self._dir(slug), f"v{n:04d}.data")
+                    os.makedirs(ddir, exist_ok=True)
+                    for name, blob in files.items():
+                        self._write(os.path.join(ddir, name), blob)
                 self._write_json(os.path.join(self._dir(slug), f"v{n:04d}.json"), {
                     "version": n, "at": stamp, "by": by, "requested_by": requested_by,
                     "note": (note or "").strip()[:300] or None,
-                    "format": fmt, "bytes": len(data), "sha256": sha})
+                    "format": fmt, "bytes": len(data), "sha256": sha, "data_sha256": data_sha,
+                    "attachments": {n: len(b) for n, b in sorted(files.items())}})
                 meta.update(version=n, format=fmt, bytes=len(data), updated=stamp, updated_by=by, updated_for=requested_by)
             elif details:
                 meta.update(details_updated=stamp, details_updated_by=by)
@@ -210,4 +252,7 @@ class Store:
             if not found:
                 raise KeyError(f"{slug} v{version}")
             meta, data, info = found
-            return self.publish(slug, data, by, fmt=info["format"], note=f"restored from v{info['version']}")[0]
+            old = self.attachments(slug, version)
+            gone = {n: None for n in self.attachments(slug) if n not in old}
+            return self.publish(slug, data, by, fmt=info["format"], note=f"restored from v{info['version']}",
+                                attachments={**old, **gone})[0]

@@ -133,7 +133,8 @@ def main():
     protected = ["/", "/index.html", "/api/reports", "/api/system/version", "/brand", "/r/x", "/r/x/info", "/r/x/v/1", "/x", "/x.html", "/x.md",
                  a.files_route + "/", a.files_route + "/x.pdf"]
     for slug in slugs:
-        protected += [f"/{slug}.html", f"/{slug}.md", f"/{slug}", f"/r/{slug}", f"/r/{slug}/info", f"/r/{slug}/v/1"]
+        protected += [f"/{slug}.html", f"/{slug}.md", f"/{slug}", f"/r/{slug}", f"/r/{slug}/info", f"/r/{slug}/v/1",
+                      f"/r/{slug}/v/1/data/data.csv"]
     protected += files
     for path in dict.fromkeys(protected):
         s, h, b = site.req("GET", path)

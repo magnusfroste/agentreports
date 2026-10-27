@@ -182,7 +182,142 @@
     legend(node, spec);
   }
 
+  // --- interactive tables: <div class="r-datatable"><script type="application/json">{columns, types, rows,
+  //     show, filter, sum, sort, search, page, download, title}</script></div> (markdown ```datatable makes these)
+  const WORDS = /^sv/.test(lang)
+    ? { search: "Sök", all: "Alla", rows: "rader", of: "av", more: "Visa fler", download: "Ladda ned CSV", total: "Summa" }
+    : { search: "Search", all: "All", rows: "rows", of: "of", more: "Show more", download: "Download CSV", total: "Total" };
+  const plain = (v) => (v == null ? "" : typeof v === "object" ? v.t : String(v));
+
+  function datatable(node) {
+    let spec;
+    try { spec = JSON.parse(node.querySelector('script[type="application/json"]').textContent); } catch { return; }
+    const cols = spec.columns, type = (c) => spec.types[cols.indexOf(c)], at = (c) => cols.indexOf(c);
+    const show = spec.show && spec.show.length ? spec.show : cols;
+    const params = new URLSearchParams(location.search);
+    const state = { q: params.get("q") || "", filters: {}, sort: spec.sort || null, shown: spec.page || 50 };
+    for (const f of spec.filter || []) {                 // ?Carrier=Logarta preselects a filter (deep links)
+      for (const [k, v] of params) if (k.toLowerCase() === f.toLowerCase()) state.filters[f] = v;
+    }
+    node.textContent = "";
+    const bar = document.createElement("div");
+    bar.className = "r-toolbar";
+    let input = null;
+    if (spec.search) {
+      input = document.createElement("input");
+      input.type = "search"; input.className = "r-search"; input.placeholder = WORDS.search; input.value = state.q;
+      input.addEventListener("input", () => { state.q = input.value.trim().toLowerCase(); state.shown = spec.page || 50; render(); });
+      bar.appendChild(input);
+    }
+    const selects = (spec.filter || []).map((f) => {
+      const sel = document.createElement("select");
+      sel.className = "r-select"; sel.setAttribute("aria-label", f);
+      const values = [...new Set(spec.rows.map((r) => plain(r[at(f)])).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, lang, { numeric: true }));
+      sel.innerHTML = "";
+      const all = new Option(`${f}: ${WORDS.all}`, "");
+      sel.add(all);
+      values.forEach((v) => sel.add(new Option(v, v)));
+      sel.value = state.filters[f] || "";
+      sel.addEventListener("change", () => { state.filters[f] = sel.value; state.shown = spec.page || 50; render(); });
+      bar.appendChild(sel);
+      return sel;
+    });
+    const count = document.createElement("span");
+    count.className = "r-count";
+    bar.appendChild(count);
+    if (spec.download) {
+      const dl = document.createElement("button");
+      dl.type = "button"; dl.className = "r-chip"; dl.textContent = WORDS.download;
+      dl.addEventListener("click", () => download(filtered()));
+      bar.appendChild(dl);
+    }
+    if (spec.search || (spec.filter || []).length || spec.download) node.appendChild(bar);
+    const wrap = document.createElement("div");
+    wrap.className = "r-table-wrap";
+    const table = document.createElement("table");
+    table.className = "r-table";
+    wrap.appendChild(table);
+    node.appendChild(wrap);
+    const more = document.createElement("button");
+    more.type = "button"; more.className = "r-chip r-more"; more.textContent = WORDS.more;
+    more.addEventListener("click", () => { state.shown += spec.page || 50; render(); });
+    node.appendChild(more);
+
+    const filtered = () => {
+      const q = (input ? input.value.trim().toLowerCase() : state.q.toLowerCase());
+      let rows = spec.rows.filter((r) => Object.entries(state.filters).every(([f, v]) => !v || plain(r[at(f)]) === v)
+        && (!q || r.some((c) => plain(c).toLowerCase().includes(q))));
+      if (state.sort) {
+        const i = at(state.sort.col), dir = state.sort.dir === "desc" ? -1 : 1, num = type(state.sort.col) === "number";
+        rows = rows.slice().sort((a, b) => {
+          const x = a[i], y = b[i];
+          if (x == null) return 1;
+          if (y == null) return -1;
+          return dir * (num ? x - y : plain(x).localeCompare(plain(y), lang, { numeric: true }));
+        });
+      }
+      return rows;
+    };
+    const cell = (v, t) => {
+      const td = document.createElement("td");
+      if (t === "number") { td.className = "num"; td.textContent = v == null ? "" : nf.format(v); }
+      else if (t === "link" && v) {
+        const a = document.createElement("a");
+        a.href = v.u; a.textContent = v.t; a.target = "_blank"; a.rel = "noopener";
+        td.appendChild(a);
+      } else td.textContent = plain(v);
+      return td;
+    };
+    function render() {
+      const rows = filtered();
+      table.textContent = "";
+      const thead = table.createTHead().insertRow();
+      for (const c of show) {
+        const th = document.createElement("th");
+        if (type(c) === "number") th.className = "num";
+        th.textContent = c + (state.sort && state.sort.col === c ? (state.sort.dir === "desc" ? " ↓" : " ↑") : "");
+        th.style.cursor = "pointer";
+        th.addEventListener("click", () => {
+          state.sort = { col: c, dir: state.sort && state.sort.col === c && state.sort.dir === "asc" ? "desc" : "asc" };
+          render();
+        });
+        thead.appendChild(th);
+      }
+      const tbody = table.createTBody();
+      for (const r of rows.slice(0, state.shown)) {
+        const tr = tbody.insertRow();
+        for (const c of show) tr.appendChild(cell(r[at(c)], type(c)));
+      }
+      if ((spec.sum || []).length) {
+        const tr = table.createTFoot().insertRow();
+        show.forEach((c, n) => {
+          const td = document.createElement("td");
+          if ((spec.sum || []).includes(c)) {
+            td.className = "num";
+            td.textContent = nf.format(rows.reduce((a, r) => a + (r[at(c)] || 0), 0));
+          } else if (n === 0) td.textContent = WORDS.total;
+          tr.appendChild(td);
+        });
+      }
+      count.textContent = rows.length === spec.rows.length ? `${rows.length} ${WORDS.rows}`
+        : `${rows.length} ${WORDS.of} ${spec.rows.length} ${WORDS.rows}`;
+      more.hidden = rows.length <= state.shown;
+    }
+    function download(rows) {
+      const q = (v) => { const s = plain(v); return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const text = [cols.map(q).join(",")].concat(rows.map((r) => r.map((v) => (v && typeof v === "object" ? v.u : q(v))).join(","))).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
+      a.download = spec.download || "data.csv";
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    render();
+  }
+
   const all = () => document.querySelectorAll(".r-chart").forEach(draw);
+  const tables = () => document.querySelectorAll(".r-datatable").forEach(datatable);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", tables); else tables();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", all); else all();
   let width = window.innerWidth;
   window.addEventListener("resize", () => {

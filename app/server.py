@@ -259,13 +259,19 @@ def t_publish(a, who):
     existed = store.get(slug)
     fmt = a.get("format") or "html"
     description = a.get("description") if a.get("description") is not None else (existed or {}).get("description")
-    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": description}, REPORT_STYLE)
+    attachments = decode_attachments(a.get("attachments"))
+    data = {**(store.attachments(slug) if existed else {}), **{n: b for n, b in attachments.items() if b is not None}}
+    for n, b in attachments.items():
+        if b is None:
+            data.pop(n, None)
+    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": description}, REPORT_STYLE, data)
     if errors:
         raise ValueError("Not published. " + " ".join(errors))
     draft = a.get("draft")
     meta, changed = store.publish(slug, a.get("content") or "", who, fmt=fmt,
                                   note=a.get("note"), expected_version=a.get("expected_version"),
                                   requested_by=a.get("requested_by"), draft=None if draft is None else bool(draft),
+                                  attachments=attachments,
                                   title=title, description=a.get("description"), category=a.get("category"),
                                   tags=a.get("tags"))
     log(f"{who}: published {slug} v{meta['version']}{' (draft)' if meta.get('draft') else ''}"
@@ -277,9 +283,23 @@ def t_publish(a, who):
     return {**public(meta), "new_report": not existed, "new_version": changed, "warnings": warnings, "note": note}
 
 
+def decode_attachments(items):
+    """publish_report's attachments: [{name, content}] (content a CSV/JSON string, or null to remove one)."""
+    out = {}
+    for item in items or []:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError("attachments: each entry is {name, content}, e.g. {\"name\": \"invoices.csv\", \"content\": \"...\"}")
+        c = item.get("content")
+        out[item["name"]] = None if c is None else (c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)).encode()
+    return out
+
+
 def t_check(a):
     fmt = a.get("format") or "html"
-    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": a.get("description")}, REPORT_STYLE)
+    data = {n: b for n, b in decode_attachments(a.get("attachments")).items() if b is not None}
+    if a.get("slug") and store.get(a["slug"]):
+        data = {**store.attachments(a["slug"]), **data}
+    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": a.get("description")}, REPORT_STYLE, data)
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "note": "Errors stop publish_report; warnings do not, but each is worth fixing." if errors or warnings
                     else "Nothing to fix."}
@@ -317,6 +337,7 @@ def t_read(a):
         raise ValueError(f"No report '{a.get('slug')}'" + (f" version {a['version']}" if a.get("version") else ""))
     meta, data, info = found
     return {**public(meta), "content_version": info["version"], "content_format": info["format"],
+            "attachments": info.get("attachments") or {},
             "published_by": info["by"], "requested_by": info.get("requested_by"), "published": info["at"], "content": data.decode("utf-8", "replace"),
             "note": "Pass expected_version=version to publish_report to make sure nobody published in between."}
 
@@ -434,10 +455,21 @@ def t_style(_):
                            "(label, series…) then one row per label; numbers may use spaces and a decimal comma",
                            "| table |": "markdown tables; numeric columns are right-aligned, a row whose first cell "
                                         "is **bold** is a total",
+                           "```datatable file.csv search filter=\"A, B\" sort=\"Date desc\" sum=\"Amount\" page=\"50\"\n```":
+                               "an interactive table from a data file sent with the report (attachments): search, "
+                               "a dropdown per filter column, click-to-sort headers, totals that follow the filter, "
+                               "paging and CSV download. Link columns: [text](url) or a /path or https URL. Deep "
+                               "link: report.html?Carrier=X preselects a filter. CSV inside the block works too",
+                           "```chart bar data=\"file.csv\" x=\"Month\" y=\"Amount\" group=\"Carrier\"\n```":
+                               "a chart summed from the same data file (without y: a count of rows; order=\"value\" "
+                               "sorts by size; more than six groups are folded into Other)",
                            "::details Title … ::": "a section the reader can fold out",
                            "::grid … ::, ::card … ::": "panels side by side",
                            "::sources … ::": "the footer: what the report is built on and when (always)"},
-                "links": "relative links to other reports ('other-slug.html') open them inside the site"},
+                "links": "relative links to other reports ('other-slug.html') open them inside the site",
+                "data": "Large data never goes through you: a script writes it to a CSV/JSON file from the data "
+                        "services and publishes it as an attachment; the markdown only names the file. Keep the "
+                        "columns plain (dates as 2026-09-02, numbers without units), one row per record."},
             "stylesheet": '<link rel="stylesheet" href="/static/report.css"><script src="/static/report.js" defer></script>',
             "charts_in_html": '<div class="r-chart" data-type="bar|stacked|hbar|line|donut"><script type="application/json">'
                               '{"labels": ["Jul", "Aug"], "unit": "kr", "series": [{"name": "Transport", "values": [312000, 298000]}]}'
@@ -525,13 +557,18 @@ TOOLS = [
                                           "this agent; shown as '<person> via <agent>'"},
       "expected_version": {"type": "integer", "description": "Refuse if the report is no longer at this version"},
       "draft": {"type": "boolean", "description": "true: a new report as a draft, not on the start page yet; "
-                                                  "false: make a draft public"}},
+                                                  "false: make a draft public"},
+      "attachments": {"type": "array", "items": {"type": "object"},
+                      "description": "Data files for ```datatable``` and charts with data=: [{name: 'invoices.csv', "
+                                     "content: '<CSV or JSON>'}]; kept with later versions unless given again (content "
+                                     "null removes one). Send large data from a script, not through the model"}},
      ["title", "content"]),
     ("check_report", lambda a, w: t_check(a),
      "Check a report before publishing it: errors that would stop it (a script instead of a page, markdown that "
      "does not parse) and warnings (no description, own colours, own menu, too wide for a phone, no sources). "
      "publish_report runs the same checks and returns the warnings.",
-     {"content": S, "format": {**S, "enum": list(FORMATS)}, "description": S}, ["content"]),
+     {"content": S, "format": {**S, "enum": list(FORMATS)}, "description": S, "slug": S,
+      "attachments": {"type": "array", "items": {"type": "object"}}}, ["content"]),
     ("update_report_details", lambda a, w: t_details(a, w),
      "Change the title, description, category or tags of a report without publishing new content.",
      {"slug": S, "title": S, "description": S, "category": S, "tags": {"type": "array", "items": S}}, ["slug"]),
@@ -959,10 +996,11 @@ def brand_page():
                 data=json_script({"lang": LANG, "words": T}))
 
 
-def markdown_page(meta, data):
+def markdown_page(meta, data, version=None):
     text = data.decode("utf-8", "replace")
     try:
-        return mdreport.render(text, meta["title"], meta.get("category") or "", LANG).encode()
+        return mdreport.render(text, meta["title"], meta.get("category") or "", LANG,
+                               store.attachments(meta["slug"], version)).encode()
     except mdreport.MarkdownError as e:  # stored before it was checked: show it as text rather than fail
         return (f'<!doctype html><html lang="{LANG}"><head><meta charset="utf-8"><title>{esc(meta["title"])}</title>'
                 f'<link rel="stylesheet" href="/static/report.css"></head><body><main class="r-page">'
@@ -1096,6 +1134,14 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             body = details(m.group(1))
             return self.ours(body) if body else self.not_found()
+        m = re.match(r"^/r/([a-z0-9-]+)/v/(\d+)/data/([a-z0-9][a-z0-9._-]{0,60}\.(?:csv|json))$", path)
+        if m:
+            blob = store.attachments(m.group(1), int(m.group(2))).get(m.group(3)) if store.get(m.group(1)) else None
+            if blob is None:
+                return self.not_found()
+            ctype = "text/csv; charset=utf-8" if m.group(3).endswith(".csv") else "application/json"
+            return self.send(200, blob, ctype, {"Content-Disposition": f'attachment; filename="{m.group(3)}"',
+                                                "Content-Security-Policy": "sandbox", "Cache-Control": "private, no-cache"})
         m = re.match(r"^/r/([a-z0-9-]+)/v/(\d+)$", path)
         if m:
             return self.report(m.group(1), int(m.group(2)))
@@ -1114,7 +1160,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.not_found()
         meta, data, info = found
         if info["format"] == "markdown":
-            data = markdown_page(meta, data)
+            data = markdown_page(meta, data, info["version"])
         if self.headers.get("Sec-Fetch-Dest") == "iframe":
             # Inside the site's panel: tell the page around it which report is showing, so a link from one
             # report to another updates the address bar and the panel. Only the slug, only to the parent.
