@@ -248,7 +248,11 @@ class Server(unittest.TestCase):
         self.assertTrue(self.tool("update_report_details", slug="renamed", title="Ledger")["isError"])
         self.assertEqual(self.tool("update_report_details", slug="renamed", description="Short")["description"], "Short")
         self.assertIn(b"Invoice ledger", self.req("/r/renamed/info", cookie=c)[2])
-        # unlocked, agents name it again
+        # one field handed back, then all
+        code, _, body = self.req("/api/reports/renamed/unlock", b'{"fields": ["category"]}', h, "POST", cookie=c)
+        self.assertEqual(json.loads(body)["set_by_person"], ["title"])
+        self.assertEqual(self.tool("update_report_details", slug="renamed", category="Finance")["category"], "Finance")
+        self.assertTrue(self.tool("update_report_details", slug="renamed", title="Ledger")["isError"])
         self.assertEqual(self.req("/api/reports/renamed/unlock", b"{}", h, "POST", cookie=c)[0], 200)
         self.assertEqual(self.tool("update_report_details", slug="renamed", title="Ledger")["title"], "Ledger")
 

@@ -101,7 +101,7 @@
         if (action === "archive" && !confirm(W.archive_confirm)) return;
         if (action === "restore" && !confirm(W.restore_confirm)) return;
         b.disabled = true;
-        await act(slug, action, version ? { version: +version } : null);
+        await act(slug, action, version ? { version: +version } : b.dataset.field ? { fields: [b.dataset.field] } : null);
         location.reload();
       } catch { b.disabled = false; toast(W.error); }
     });
@@ -109,10 +109,15 @@
     $("#edit").addEventListener("submit", async (e) => {
       e.preventDefault();
       const f = e.target, save = f.querySelector("[type=submit]");
+      // only what was changed: that is what gets locked, the rest stays with the agents
+      const changed = {};
+      for (const k of ["title", "description", "category"]) {
+        if (f.elements[k].value.trim() !== f.elements[k].defaultValue.trim()) changed[k] = f.elements[k].value;
+      }
+      if (!Object.keys(changed).length) { f.hidden = true; return; }
       save.disabled = true;
       try {
-        await act(f.dataset.slug, "details", { title: f.elements.title.value, description: f.elements.description.value,
-          category: f.elements.category.value });
+        await act(f.dataset.slug, "details", changed);
         location.reload();
       } catch { save.disabled = false; toast(W.error); }
     });

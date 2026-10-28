@@ -259,13 +259,17 @@ class Store:
             self._write_json(os.path.join(self._dir(slug), "meta.json"), meta)
             return meta
 
-    def unlock(self, slug, by):
-        """Let agents set the title, description and category again."""
+    def unlock(self, slug, by, fields=None):
+        """Let agents set these details again (default: all of them)."""
         with self.lock:
             meta = self.get(slug)
             if not meta:
                 raise KeyError(slug)
-            meta.pop("locked", None)
+            locked = {k: v for k, v in (meta.get("locked") or {}).items() if fields and k not in fields}
+            if locked:
+                meta["locked"] = locked
+            else:
+                meta.pop("locked", None)
             meta.update(details_updated=now(), details_updated_by=by)
             self._write_json(os.path.join(self._dir(slug), "meta.json"), meta)
             return meta

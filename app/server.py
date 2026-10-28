@@ -99,9 +99,9 @@ WORDS = {
            "archive": "Archive", "unarchive": "Restore to start page",
            "archive_confirm": "Hide this report from the start page? It stays available, with all versions.",
            "edit_details": "Rename", "f_title": "Title", "f_description": "Description", "f_category": "Category",
-           "save": "Save", "cancel": "Cancel", "unlock": "Let agents set them again",
+           "save": "Save", "cancel": "Cancel", "unlock": "Release all",
            "edit_hint": "The link stays the same. Agents keep publishing to this report, and new versions keep what you set here.",
-           "locked_note": "Set here: {fields}. Agents' new versions keep it.", "unlock_confirm": "Let agents change the title, description and category again?",
+           "locked_note": "Set here, kept in agents' new versions:", "unlock_one": "Let agents set it again", "unlock_confirm": "Let agents change this again?",
            "archived_toast": "Archived", "undo": "Undo", "copy_link": "Copy link", "copied": "Link copied",
            "details": "Versions & details", "open": "Open", "reports": "reports", "report": "report",
            "categories": "categories", "category": "category", "last_updated": "last updated", "by": "by",
@@ -131,9 +131,9 @@ WORDS = {
            "archive": "Arkivera", "unarchive": "Tillbaka till startsidan",
            "archive_confirm": "Dölja rapporten från startsidan? Den finns kvar, med alla versioner.",
            "edit_details": "Byt namn", "f_title": "Titel", "f_description": "Beskrivning", "f_category": "Kategori",
-           "save": "Spara", "cancel": "Avbryt", "unlock": "Låt agenterna styra igen",
+           "save": "Spara", "cancel": "Avbryt", "unlock": "Släpp alla",
            "edit_hint": "Länken är densamma. Agenterna publicerar vidare till rapporten, och nya versioner behåller det du sätter här.",
-           "locked_note": "Satt här: {fields}. Agenternas nya versioner behåller det.", "unlock_confirm": "Låta agenterna ändra titel, beskrivning och kategori igen?",
+           "locked_note": "Satt här, behålls i agenternas nya versioner:", "unlock_one": "Låt agenterna styra det igen", "unlock_confirm": "Låta agenterna ändra detta igen?",
            "archived_toast": "Arkiverad", "undo": "Ångra", "copy_link": "Kopiera länk", "copied": "Länken kopierad",
            "details": "Versioner och detaljer", "open": "Öppna", "reports": "rapporter", "report": "rapport",
            "categories": "kategorier", "category": "kategori", "last_updated": "senast uppdaterad", "by": "av",
@@ -989,8 +989,12 @@ def details(slug):
     tags = "".join(f'<span class="tag">{esc(t)}</span>' for t in meta.get("tags", []))
     locked = meta.get("locked") or {}
     locked_note = "" if not locked else (
-        f'<p class="locked-note">{esc(T["locked_note"].format(fields=", ".join(T["f_" + k].lower() for k in LOCKABLE if k in locked)))} '
-        f'<button class="link-btn" data-action="unlock" data-slug="{esc(slug)}">{esc(T["unlock"])}</button></p>')
+        f'<p class="locked-note">{esc(T["locked_note"])} '
+        + "".join(f'<span class="lock-chip">{esc(T["f_" + k])}<button type="button" data-action="unlock" data-slug="{esc(slug)}" '
+                  f'data-field="{k}" title="{esc(T["unlock_one"])}" aria-label="{esc(T["unlock_one"])}: {esc(T["f_" + k])}">×</button></span>'
+                  for k in LOCKABLE if k in locked)
+        + (f' <button class="link-btn" data-action="unlock" data-slug="{esc(slug)}">{esc(T["unlock"])}</button>' if len(locked) > 1 else "")
+        + '</p>')
     cats = sorted({m.get("category") for m in store.all() if m.get("category")})
     return page("details.html", title=esc(meta["title"]), slug=esc(slug), description=esc(meta.get("description") or ""),
                 category=esc(meta.get("category") or T["uncategorized"]), tags=tags,
@@ -1299,7 +1303,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.json(400, {"error": str(e)})
                     raise
             elif action == "unlock":
-                meta = store.unlock(slug, who)
+                fields = json.loads(self.body(10_000) or b"{}").get("fields")
+                meta = store.unlock(slug, who, [f for f in fields if f in LOCKABLE] if isinstance(fields, list) else None)
             else:
                 meta = store.set_archived(slug, action == "archive", who)
         except (KeyError, ValueError, TypeError):
