@@ -214,10 +214,29 @@ def chart_from_data(kind, named, data):
             labels.append(lab)
         sums[lab][g] = sums[lab].get(g, 0) + v
         groups[g] = groups.get(g, 0) + v
-    if named.get("order", "label") == "label":
+    n_top = named.get("top", "")
+    if n_top and not (n_top.isdigit() and 1 <= int(n_top) <= 50):
+        raise MarkdownError(f'chart: top="{n_top}" must be a number from 1 to 50')
+    if named.get("order", "value" if n_top else "label") == "label":
         labels.sort()
-    elif named.get("order") == "value":
+    elif named.get("order", "value") == "value":
         labels.sort(key=lambda l: -sum(sums[l].values()))
+    if n_top and len(labels) > int(n_top):
+        # The largest by total; the rest become one bar only when other="name" asks for it.
+        keep = sorted(labels, key=lambda l: -sum(sums[l].values()))[:int(n_top)]
+        rest = [l for l in labels if l not in keep]
+        labels = [l for l in labels if l in keep]
+        if named.get("other"):
+            summed = {}
+            for l in rest:
+                for g, v in sums[l].items():
+                    summed[g] = summed.get(g, 0) + v
+            sums[named["other"]] = summed
+            labels.append(named["other"])
+        groups = {}
+        for l in labels:
+            for g, v in sums[l].items():
+                groups[g] = groups.get(g, 0) + v
     top = [g for g, _ in sorted(groups.items(), key=lambda kv: -kv[1])]
     other = top[5:] if len(top) > 6 else []
     top = top[:5] if other else top

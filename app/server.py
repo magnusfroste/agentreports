@@ -488,7 +488,8 @@ def t_style(_):
                                "link: report.html?Carrier=X preselects a filter. CSV inside the block works too",
                            "```chart bar data=\"file.csv\" x=\"Month\" y=\"Amount\" group=\"Carrier\"\n```":
                                "a chart summed from the same data file (without y: a count of rows; order=\"value\" "
-                               "sorts by size; more than six groups are folded into Other)",
+                               "sorts by size; top=\"10\" keeps the ten largest x values, by total, other=\"Others\" adds one bar "
+                               "for the rest; more than six groups are folded into Other)",
                            "::details Title … ::": "a section the reader can fold out",
                            "::grid … ::, ::card … ::": "panels side by side",
                            "::sources … ::": "the footer: what the report is built on and when (always)"},

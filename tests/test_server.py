@@ -434,6 +434,12 @@ class Server(unittest.TestCase):
                       attachments=[{"name": "invoices.csv", "content": rows + "2026-09-30;Beta;2026-09;1;/files/x.pdf\n"}])
         self.assertEqual(r["version"], 3)
         self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv", cookie=c)[2].decode(), rows)
+        # top="1": only the largest carrier, largest first, and the rest as one bar when asked
+        top = md.replace('x="Month" y="Amount" group="Carrier"', 'x="Carrier" y="Amount" top="1" other="Rest"')
+        r = self.tool("publish_report", title="Ledger", slug="ledger", content=top, format="markdown")
+        self.assertIn(b'"labels": ["Alpha", "Rest"]', self.req("/ledger.html", cookie=c)[2])
+        r = self.tool("check_report", content=top.replace('top="1"', 'top="many"'), format="markdown", slug="ledger")
+        self.assertIn('top="many"', " ".join(r["errors"]))
 
     def test_09_wrong_passwords_lock_out(self):
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "ignored"}
