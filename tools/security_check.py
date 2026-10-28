@@ -157,7 +157,8 @@ def main():
 
     # --- 4. browser actions need a session and the site's own page ---
     actions = [f"/api/reports/{slugs[0]}/archive", f"/api/reports/{slugs[0]}/unarchive",
-               f"/api/reports/{slugs[0]}/restore", "/api/brand/restore", "/api/system/update"]
+               f"/api/reports/{slugs[0]}/restore", f"/api/reports/{slugs[0]}/details",
+               f"/api/reports/{slugs[0]}/unlock", "/api/brand/restore", "/api/system/update"]
     for path in actions:
         for label, headers in (("no session", {}),
                                ("forged session", {"Cookie": f"ar_session={now + 86400}.{secrets.token_hex(32)}"}),

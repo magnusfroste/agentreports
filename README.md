@@ -218,7 +218,7 @@ docker compose exec reports python server.py import /import --by hermes --detail
 
 ## Security check
 
-`tools/security_check.py` checks a running site from the outside, as a stranger would: only the sign-in page and public assets answer without signing in; pages, reports, versions, details, the API, the look page and served files lead to the sign-in page (also for real reports and odd paths); forged sessions are refused; archive, restore and brand restore need a session from the site's own page; MCP takes only the keys in `MCP_KEYS` (no key, random keys, a changed, cut, extended or re-cased valid key, Basic, the key's name or a key in the URL are refused). It never tries passwords, so it locks nobody out.
+`tools/security_check.py` checks a running site from the outside, as a stranger would: only the sign-in page and public assets answer without signing in; pages, reports, versions, details, the API, the look page and served files lead to the sign-in page (also for real reports and odd paths); forged sessions are refused; archive, restore, rename, unlock and brand restore need a session from the site's own page; MCP takes only the keys in `MCP_KEYS` (no key, random keys, a changed, cut, extended or re-cased valid key, Basic, the key's name or a key in the URL are refused). It never tries passwords, so it locks nobody out.
 
 ```bash
 AR_CHECK_KEY=<one key from MCP_KEYS> python3 tools/security_check.py https://reports.example.com --out protocol.md
