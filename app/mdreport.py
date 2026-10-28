@@ -23,6 +23,10 @@ need:
                                    follows the filter, paging and a CSV download
     ```chart bar data="invoices.csv" x="Month" y="Amount" group="Carrier"
     ```                            a chart summed from the same file
+    {{sum("Amount")}}              a figure computed from the data file when the page is drawn, anywhere
+                                   in the text or in ::kpis, so it always matches the table: count, distinct,
+                                   sum, avg, min, max, share, top, topvalue; where="Carrier = Alpha"; a file
+                                   name first when there are several; | kr adds a unit
     ::details Title                a section the reader can fold out
     ::sources                      the footer: what the report is built on
 
@@ -454,6 +458,139 @@ def render_blocks(lines, data=None):
     return "".join(out)
 
 
+FUNCTIONS = ("count", "distinct", "sum", "avg", "min", "max", "share", "top", "topvalue")
+EXPR = re.compile(r"\{\{\s*(\w+)\s*\((.*?)\)\s*(?:\|\s*([^{}|]{1,12}?))?\s*\}\}")
+
+
+def fmt_number(v, lang="en", decimals=None):
+    """3366510.27 -> '3 366 510' (sv) or '3,366,510' (en); small numbers keep a decimal."""
+    if decimals is None:
+        decimals = 0 if abs(v) >= 100 or float(v).is_integer() else 1
+    s = f"{v:,.{decimals}f}"
+    if lang == "sv":
+        s = s.replace(",", "\u00a0").replace(".", ",").replace("-", "−")
+    return s
+
+
+def _where(spec, cols, what):
+    """'Carrier = Alpha and Month != ""' -> a row test."""
+    tests = []
+    for part in re.split(r"\s+and\s+", spec.strip()):
+        m = re.match(r"^(.+?)\s*(!=|>=|<=|=|>|<)\s*(.*)$", part)
+        if not m:
+            raise MarkdownError(f'{what}: where="{spec}" — write it like where="Carrier = Alpha" (=, !=, >, <, and)')
+        name, op, value = m.group(1).strip(), m.group(2), m.group(3).strip().strip("'\"")
+        if name.lower() not in cols:
+            raise MarkdownError(f"{what}: no column {name} in where (columns: {', '.join(cols.values())})")
+        tests.append((name.lower(), op, value))
+
+    def test(row):
+        for name, op, value in tests:
+            cell = row[name]
+            text = "" if cell is None else str(cell["t"] if isinstance(cell, dict) else cell)
+            if op in ("=", "!="):
+                num = parse_number(value) if isinstance(cell, float) else None
+                same = (cell == num) if num is not None else text.strip().lower() == value.lower()
+                if same != (op == "="):
+                    return False
+            else:
+                num = parse_number(value)
+                if num is None or not isinstance(cell, float):
+                    return False
+                if not {">": cell > num, "<": cell < num, ">=": cell >= num, "<=": cell <= num}[op]:
+                    return False
+        return True
+    return test
+
+
+def compute(fn, args, data, lang="en"):
+    """One {{fn(args)}}: the value as text."""
+    what = f"{{{{{fn}(…)}}}}"
+    if fn not in FUNCTIONS:
+        raise MarkdownError(f"{what}: unknown function; use {', '.join(FUNCTIONS)}")
+    named = dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', args))
+    rest = re.sub(r'\w+\s*=\s*"[^"]*"', "", args)
+    pos = [a or b for a, b in re.findall(r'"([^"]*)"|([^\s,"]+)', rest)]
+    file = pos.pop(0) if pos and ATTACHMENT.match(pos[0]) else None
+    if not data:
+        raise MarkdownError(f"{what}: no data file with the report to compute from (attachments)")
+    if file is None:
+        if len(data) > 1:
+            raise MarkdownError(f"{what}: several data files ({', '.join(data)}); name one first, like {fn}(file.csv, …)")
+        file = next(iter(data))
+    if file not in data:
+        raise MarkdownError(f"{what}: no data file {file!r} (there is {', '.join(data)})")
+    t = typed(load_table(file, data[file]))
+    cols = {c.lower(): c for c in t["columns"]}
+    rows = [{c.lower(): v for c, v in zip(t["columns"], r)} for r in t["rows"]]
+    keep = _where(named["where"], cols, what) if named.get("where") else (lambda r: True)
+    need = {"count": 0, "distinct": 1, "sum": 1, "avg": 1, "min": 1, "max": 1, "share": 1, "top": 1, "topvalue": 1}[fn]
+    if len(pos) < need:
+        raise MarkdownError(f"{what}: give the column, like {fn}(\"Amount\")" if fn not in ("top", "topvalue")
+                            else f'{what}: give the column to group by and the one to add up, like {fn}("Customer", "Amount")')
+    for c in pos:
+        if c.lower() not in cols:
+            raise MarkdownError(f"{what}: no column {c} in {file} (columns: {', '.join(t['columns'])})")
+    pos = [c.lower() for c in pos]
+    numeric = {c.lower() for c, ty in zip(t["columns"], t["types"]) if ty == "number"}
+
+    def nums(col, rs):
+        if col not in numeric:
+            raise MarkdownError(f"{what}: column {cols[col]} is not numbers")
+        return [r[col] for r in rs if r[col] is not None]
+    chosen = [r for r in rows if keep(r)]
+    label = lambda v: "" if v is None else str(v["t"] if isinstance(v, dict) else v)
+    if fn == "count":
+        return fmt_number(len(chosen), lang)
+    if fn == "distinct":
+        return fmt_number(len({label(r[pos[0]]) for r in chosen if label(r[pos[0]])}), lang)
+    if fn in ("sum", "avg", "min", "max"):
+        vs = nums(pos[0], chosen)
+        if not vs and fn != "sum":
+            raise MarkdownError(f"{what}: no rows with a number in {cols[pos[0]]}")
+        v = {"sum": sum(vs), "avg": sum(vs) / len(vs) if vs else 0, "min": min(vs or [0]), "max": max(vs or [0])}[fn]
+        return fmt_number(v, lang)
+    if fn == "share":
+        if not named.get("where"):
+            raise MarkdownError(f'{what}: share needs where="…": the part, as a share of all rows')
+        whole = sum(nums(pos[0], rows))
+        return fmt_number(100 * sum(nums(pos[0], chosen)) / whole if whole else 0, lang, 1) + " %"
+    # top / topvalue: the group with the largest total
+    totals = {}
+    for r in chosen:
+        g = label(r[pos[0]])
+        if g:
+            totals[g] = totals.get(g, 0) + ((r[pos[1]] or 0) if len(pos) > 1 else 1)
+    if len(pos) > 1 and pos[1] not in numeric:
+        raise MarkdownError(f"{what}: column {cols[pos[1]]} is not numbers")
+    rank = named.get("rank", "1")
+    if not rank.isdigit() or not 1 <= int(rank) <= len(totals):
+        raise MarkdownError(f'{what}: rank="{rank}" — there are {len(totals)} groups')
+    name, value = sorted(totals.items(), key=lambda kv: -kv[1])[int(rank) - 1]
+    return name if fn == "top" else fmt_number(value, lang)
+
+
+def computed(text, data, lang="en"):
+    """Every {{fn(args)}} outside ``` blocks replaced by its value."""
+    out, fenced = [], False
+    for n, line in enumerate(text.split("\n"), 1):
+        if line.strip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and "{{" in line:
+            def one(m):
+                try:
+                    v = compute(m.group(1), m.group(2), data, lang)
+                except MarkdownError as e:
+                    raise MarkdownError(f"line {n}: {e}")
+                return v + (" " + m.group(3).strip() if m.group(3) else "")
+            line = EXPR.sub(one, line)
+            if "{{" in line and "}}" in line:
+                raise MarkdownError(f"line {n}: a {{{{…}}}} that is not a computed value; write it like "
+                                    '{{sum("Amount")}} or {{count(where="Carrier = Alpha")}}')
+        out.append(line)
+    return "\n".join(out)
+
+
 def title_of(text):
     m = re.search(r"^#\s+(.+)$", text, re.M)
     return m.group(1).strip() if m else None
@@ -461,7 +598,7 @@ def title_of(text):
 
 def render(text, title="", category="", lang="en", data=None, kit=""):
     """A complete report page from markdown, in the site's report kit."""
-    body = render_blocks(text.replace("\r\n", "\n").split("\n"), data)
+    body = render_blocks(computed(text.replace("\r\n", "\n"), data or {}, lang).split("\n"), data)
     eyebrow = f'<p class="r-eyebrow">{_esc(category)}</p>' if category else ""
     if "<h1>" not in body and title:
         body = f"<h1>{_esc(title)}</h1>" + body

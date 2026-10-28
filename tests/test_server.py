@@ -434,6 +434,23 @@ class Server(unittest.TestCase):
                       attachments=[{"name": "invoices.csv", "content": rows + "2026-09-30;Beta;2026-09;1;/files/x.pdf\n"}])
         self.assertEqual(r["version"], 3)
         self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv", cookie=c)[2].decode(), rows)
+        # figures computed from the data when the page is drawn; typed-in ones next to data get a warning
+        fig = md.replace("# Ledger\n\n", '# Ledger\n\n::kpis\n- {{sum("Amount") | kr}} | Total\n- {{count(where="Carrier = Beta")}} | Beta\n'
+                         '::\n\nLargest: {{top("Carrier", "Amount")}}, {{share("Amount", where="Carrier = Alpha")}}.\n\n')
+        r = self.tool("publish_report", title="Ledger", slug="ledger", content=fig, format="markdown")
+        self.assertEqual(r["warnings"], [])
+        page = self.req("/ledger.html", cookie=c)[2].decode()
+        total = sum(100 + i + .5 for i in range(9)) + 1
+        self.assertIn(f"{total:,.0f} kr", page)
+        self.assertIn("Largest: Alpha, ", page)
+        self.assertNotIn("{{", page)
+        w = self.tool("check_report", content=fig.replace('{{sum("Amount") | kr}}', "917 kr"), format="markdown", slug="ledger")
+        self.assertEqual(w["errors"], [])
+        self.assertIn("typed in", " ".join(w["warnings"]))
+        self.assertNotIn("description", " ".join(w["warnings"]))  # the report has one already
+        for bad in ('{{sum("Nope")}}', '{{sum("Carrier")}}', "{{guess()}}", '{{count(where="Carrier ~ x")}}'):
+            e = self.tool("check_report", content=fig + bad, format="markdown", slug="ledger")["errors"]
+            self.assertTrue(e and "line" in e[0], bad)
         # top="1": only the largest carrier, largest first, and the rest as one bar when asked
         top = md.replace('x="Month" y="Amount" group="Carrier"', 'x="Carrier" y="Amount" top="1" other="Rest"')
         r = self.tool("publish_report", title="Ledger", slug="ledger", content=top, format="markdown")

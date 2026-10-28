@@ -323,9 +323,11 @@ def decode_attachments(items):
 def t_check(a):
     fmt = a.get("format") or "html"
     data = {n: b for n, b in decode_attachments(a.get("attachments")).items() if b is not None}
-    if a.get("slug") and store.get(a["slug"]):
+    existing = store.get(a["slug"]) if a.get("slug") else None
+    if existing:
         data = {**store.attachments(a["slug"]), **data}
-    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": a.get("description")}, REPORT_STYLE, data)
+    description = a.get("description") if a.get("description") is not None else (existing or {}).get("description")
+    errors, warnings = checks.check(a.get("content") or "", fmt, {"description": description}, REPORT_STYLE, data)
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "note": "Errors stop publish_report; warnings do not, but each is worth fixing." if errors or warnings
                     else "Nothing to fix."}
@@ -490,13 +492,22 @@ def t_style(_):
                                "a chart summed from the same data file (without y: a count of rows; order=\"value\" "
                                "sorts by size; top=\"10\" keeps the ten largest x values, by total, other=\"Others\" adds one bar "
                                "for the rest; more than six groups are folded into Other)",
+                           "{{sum(\"Amount\")}}": "a figure computed from the data file when the page is drawn, in "
+                               "::kpis or anywhere in the text — use these instead of typing numbers, so the figures "
+                               "always match the table and chart: count(), distinct(\"Customer\"), sum/avg/min/max"
+                               "(\"Amount\"), share(\"Amount\", where=\"Carrier = Alpha\") (a percent), "
+                               "top(\"Customer\", \"Amount\") (the largest, rank=\"2\" the next), "
+                               "topvalue(\"Customer\", \"Amount\"); where=\"A = x and B != ''\" (=, !=, >, <; '' is empty) "
+                               "filters any of them; the file name first when there are several (sum(file.csv, "
+                               "\"Amount\")); | kr adds a unit. Example: - {{sum(\"Amount\") | kr}} | Total cost",
                            "::details Title … ::": "a section the reader can fold out",
                            "::grid … ::, ::card … ::": "panels side by side",
                            "::sources … ::": "the footer: what the report is built on and when (always)"},
                 "links": "relative links to other reports ('other-slug.html') open them inside the site",
                 "data": "Large data never goes through you: a script writes it to a CSV/JSON file from the data "
                         "services and publishes it as an attachment; the markdown only names the file. Keep the "
-                        "columns plain (dates as 2026-09-02, numbers without units), one row per record."},
+                        "columns plain (dates as 2026-09-02, numbers without units), one row per record. Then let the page "
+                        "compute the key figures from it ({{sum(\"Amount\")}}) rather than writing them yourself."},
             "stylesheet": '<link rel="stylesheet" href="/static/report.css"><script src="/static/report.js" defer></script>',
             "charts_in_html": '<div class="r-chart" data-type="bar|stacked|hbar|line|donut"><script type="application/json">'
                               '{"labels": ["Jul", "Aug"], "unit": "kr", "series": [{"name": "Transport", "values": [312000, 298000]}]}'

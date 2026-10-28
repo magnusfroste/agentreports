@@ -18,6 +18,20 @@ def _visible(html):
     return re.sub(r"(?s)<[^>]+>", " ", s)
 
 
+def kpi_lines(text):
+    """The lines inside ::kpis blocks."""
+    out, inside = [], False
+    for line in text.split("\n"):
+        t = line.strip()
+        if t.startswith("::kpis"):
+            inside = True
+        elif inside and t == "::":
+            inside = False
+        elif inside and t:
+            out.append(re.sub(r"^[-*]\s+", "", t))
+    return out
+
+
 def check(content, fmt="html", details=None, report_style=True, data=None):
     """(errors, warnings) for a report about to be published."""
     errors, warnings = [], []
@@ -37,6 +51,12 @@ def check(content, fmt="html", details=None, report_style=True, data=None):
             warnings.append("No '# Title' line: the report starts without a heading.")
         if "r-sources" not in page:
             warnings.append("No ::sources block: say what the numbers are built on and when, at the end.")
+        if data:
+            typed_in = [ln.strip() for ln in kpi_lines(text) if re.search(r"\d", ln.split("|")[0]) and "{{" not in ln.split("|")[0]]
+            if typed_in:
+                warnings.append(f"{len(typed_in)} key figure(s) typed in ({typed_in[0][:60]}…) although the report has "
+                                "data: compute them from it, like - {{sum(\"Amount\") | kr}} | Total, so they always "
+                                "match the table (see report_style).")
         if CODE_LINE.search(text) and "```" not in text:
             warnings.append("Some lines look like program code; is this the report, or the script that makes it?")
         return errors, warnings
