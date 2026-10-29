@@ -497,7 +497,8 @@ def t_style(_):
                                "always match the table and chart: count(), distinct(\"Customer\"), sum/avg/min/max"
                                "(\"Amount\"), share(\"Amount\", where=\"Carrier = Alpha\") (a percent), "
                                "top(\"Customer\", \"Amount\") (the largest, rank=\"2\" the next), "
-                               "topvalue(\"Customer\", \"Amount\"); where=\"A = x and B != ''\" (=, !=, >, <; '' is empty) "
+                               "topvalue(\"Customer\", \"Amount\") (its total), topshare(\"Customer\", \"Amount\") (its share, a percent — "
+                               "follows whoever is largest, unlike share with a fixed name); where=\"A = x and B != ''\" (=, !=, >, <; '' is empty) "
                                "filters any of them; the file name first when there are several (sum(file.csv, "
                                "\"Amount\")); | kr adds a unit. Example: - {{sum(\"Amount\") | kr}} | Total cost",
                            "::details Title … ::": "a section the reader can fold out",

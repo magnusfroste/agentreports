@@ -436,13 +436,16 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req("/r/ledger/v/1/data/invoices.csv", cookie=c)[2].decode(), rows)
         # figures computed from the data when the page is drawn; typed-in ones next to data get a warning
         fig = md.replace("# Ledger\n\n", '# Ledger\n\n::kpis\n- {{sum("Amount") | kr}} | Total\n- {{count(where="Carrier = Beta")}} | Beta\n'
-                         '::\n\nLargest: {{top("Carrier", "Amount")}}, {{share("Amount", where="Carrier = Alpha")}}.\n\n')
+                         '::\n\nLargest: {{top("Carrier", "Amount")}}, {{share("Amount", where="Carrier = Alpha")}} = {{topshare("Carrier", "Amount")}}.\n\n')
         r = self.tool("publish_report", title="Ledger", slug="ledger", content=fig, format="markdown")
         self.assertEqual(r["warnings"], [])
         page = self.req("/ledger.html", cookie=c)[2].decode()
         total = sum(100 + i + .5 for i in range(9)) + 1
         self.assertIn(f"{total:,.0f} kr", page)
         self.assertIn("Largest: Alpha, ", page)
+        import re as _re
+        a, b = _re.search(r"Largest: Alpha, ([\d.,]+ %) = ([\d.,]+ %)", page).groups()
+        self.assertEqual(a, b)
         self.assertNotIn("{{", page)
         w = self.tool("check_report", content=fig.replace('{{sum("Amount") | kr}}', "917 kr"), format="markdown", slug="ledger")
         self.assertEqual(w["errors"], [])

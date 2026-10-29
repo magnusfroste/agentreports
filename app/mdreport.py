@@ -25,7 +25,7 @@ need:
     ```                            a chart summed from the same file
     {{sum("Amount")}}              a figure computed from the data file when the page is drawn, anywhere
                                    in the text or in ::kpis, so it always matches the table: count, distinct,
-                                   sum, avg, min, max, share, top, topvalue; where="Carrier = Alpha"; a file
+                                   sum, avg, min, max, share, top, topvalue, topshare; where="Carrier = Alpha"; a file
                                    name first when there are several; | kr adds a unit
     ::details Title                a section the reader can fold out
     ::sources                      the footer: what the report is built on
@@ -458,7 +458,7 @@ def render_blocks(lines, data=None):
     return "".join(out)
 
 
-FUNCTIONS = ("count", "distinct", "sum", "avg", "min", "max", "share", "top", "topvalue")
+FUNCTIONS = ("count", "distinct", "sum", "avg", "min", "max", "share", "top", "topvalue", "topshare")
 EXPR = re.compile(r"\{\{\s*(\w+)\s*\((.*?)\)\s*(?:\|\s*([^{}|]{1,12}?))?\s*\}\}")
 
 
@@ -524,10 +524,12 @@ def compute(fn, args, data, lang="en"):
     cols = {c.lower(): c for c in t["columns"]}
     rows = [{c.lower(): v for c, v in zip(t["columns"], r)} for r in t["rows"]]
     keep = _where(named["where"], cols, what) if named.get("where") else (lambda r: True)
-    need = {"count": 0, "distinct": 1, "sum": 1, "avg": 1, "min": 1, "max": 1, "share": 1, "top": 1, "topvalue": 1}[fn]
+    need = {"count": 0, "distinct": 1, "sum": 1, "avg": 1, "min": 1, "max": 1, "share": 1, "top": 1, "topvalue": 1, "topshare": 1}[fn]
     if len(pos) < need:
-        raise MarkdownError(f"{what}: give the column, like {fn}(\"Amount\")" if fn not in ("top", "topvalue")
+        raise MarkdownError(f"{what}: give the column, like {fn}(\"Amount\")" if fn not in ("top", "topvalue", "topshare")
                             else f'{what}: give the column to group by and the one to add up, like {fn}("Customer", "Amount")')
+    if fn == "topshare" and len(pos) < 2:
+        raise MarkdownError(f'{what}: give the column to group by and the one to add up, like topshare("Customer", "Amount")')
     for c in pos:
         if c.lower() not in cols:
             raise MarkdownError(f"{what}: no column {c} in {file} (columns: {', '.join(t['columns'])})")
@@ -555,7 +557,7 @@ def compute(fn, args, data, lang="en"):
             raise MarkdownError(f'{what}: share needs where="…": the part, as a share of all rows')
         whole = sum(nums(pos[0], rows))
         return fmt_number(100 * sum(nums(pos[0], chosen)) / whole if whole else 0, lang, 1) + " %"
-    # top / topvalue: the group with the largest total
+    # top / topvalue / topshare: the group with the largest total, its total, its share of all (after where)
     totals = {}
     for r in chosen:
         g = label(r[pos[0]])
@@ -567,6 +569,9 @@ def compute(fn, args, data, lang="en"):
     if not rank.isdigit() or not 1 <= int(rank) <= len(totals):
         raise MarkdownError(f'{what}: rank="{rank}" — there are {len(totals)} groups')
     name, value = sorted(totals.items(), key=lambda kv: -kv[1])[int(rank) - 1]
+    if fn == "topshare":
+        whole = sum((r[pos[1]] or 0) for r in chosen)  # rows without a group count in the whole, as in share
+        return fmt_number(100 * value / whole if whole else 0, lang, 1) + " %"
     return name if fn == "top" else fmt_number(value, lang)
 
 
