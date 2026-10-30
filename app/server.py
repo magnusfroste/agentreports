@@ -39,6 +39,7 @@ import http.cookies
 import json
 import mimetypes
 import os
+import platform
 import re
 import shutil
 import sys
@@ -1360,6 +1361,13 @@ class Handler(BaseHTTPRequestHandler):
         return self.json(200, answers if isinstance(msg, list) else answers[0])
 
 
+def banner(title, tagline, rows):
+    """Printed once at start, like LiteLLM's: which build this is and how it is set up. No secrets."""
+    inner = max(len(title), len(tagline)) + 4
+    print("\n".join([f"╭{'─' * inner}╮", f"│  {title.ljust(inner - 2)}│", f"│  {tagline.ljust(inner - 2)}│",
+                     f"╰{'─' * inner}╯"] + [f"  {k:<9} {v}" for k, v in rows]), flush=True)
+
+
 def main():
     if len(PASSWORD) < 20:
         log("REPORTS_PASSWORD must be at least 20 characters. Refusing to start.")
@@ -1367,10 +1375,20 @@ def main():
     if not KEYS:
         log("MCP_KEYS has no name:key pair with a key of 32+ characters: agents cannot publish.")
     port = int(os.environ.get("PORT", "8000"))
-    log(f"agentreports {VERSION} on :{port}, {len(store.all())} reports, agents: {', '.join(sorted(KEYS.values())) or '-'}"
-        + (f", files {FILES_DIR} at {FILES_ROUTE}" if FILES_DIR else "")
-        + f", brand: {', '.join(sorted(n for n in BRANDING['files'] if n not in DEFAULT_ICONS or BRANDING['files'][n] != DEFAULT_ICONS[n])) or 'default icons'}"
-        + f"{' + styles' if BRANDING['css'] else ''}{f' (agent layer v{brands.current()})' if AGENT_BRANDING and brands.current() else ''}")
+    reports = store.all()
+    banner(f"AgentReports {VERSION}", "Reports agents publish over MCP, for people to read", [
+        ("site", f"{TITLE} on :{port}, {PUBLIC_URL or '(PUBLIC_URL not set)'}, {LANG}"),
+        ("mcp", f"POST :{port}/mcp, {len(TOOLS)} tools"),
+        ("agents", f"{len(KEYS)} key(s): {', '.join(sorted(KEYS.values())) or '-'}"),
+        ("reports", f"{len(reports)} ({sum(1 for m in reports if m.get('archived'))} archived) in {DATA}"),
+        ("files", f"{FILES_DIR} at {FILES_ROUTE}" if FILES_DIR else "off"),
+        ("brand", (', '.join(sorted(n for n in BRANDING['files'] if n not in DEFAULT_ICONS
+                                    or BRANDING['files'][n] != DEFAULT_ICONS[n])) or 'default icons')
+         + (" + styles" if BRANDING['css'] else "")
+         + (f", agent layer v{brands.current()}" if AGENT_BRANDING and brands.current() else "")),
+        ("updates", f"checks {UPDATE_REPO}" + (", deploy hook set" if DEPLOY_HOOK_URL else "") if UPDATE_CHECK else "off"),
+        ("python", f"{platform.python_version()}, started {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC"),
+    ])
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
